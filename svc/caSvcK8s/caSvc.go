@@ -41,23 +41,23 @@ func caSvc(cmd, org string) error {
 	caAdminPass := randStr(8)
 	//	caAdminPass := "adminpw"
 
-	subj, netName, err := immutil.ReadConf(org)
+	config, err := immutil.ReadConf(org)
 	if err != nil {
 		return err
 	}
-	subj.CommonName = immutil.CAHostname+"."+org
+	config.Subj.CommonName = immutil.CAHostname+"."+org
 
 	switch cmd {
 	case "start":
-		err = startCA(caAdminName, caAdminPass, subj, netName)
+		err = startCA(caAdminName, caAdminPass, config)
 		if err != nil {
-			return fmt.Errorf("could not start a CA for %s: %s\n", subj.CommonName, err)
+			return fmt.Errorf("could not start a CA for %s: %s\n", config.Subj.CommonName, err)
 		}
 		
 	case "stop":
-		err = stopCA(subj)
+		err = stopCA(&config.Subj)
 		if err != nil {
-			return fmt.Errorf("could not stop %s: %s\n", subj.CommonName, err)
+			return fmt.Errorf("could not stop %s: %s\n", config.Subj.CommonName, err)
 		}
 	default:
 		return fmt.Errorf("unknown command: %s\n", cmd)

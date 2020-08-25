@@ -22,7 +22,8 @@ const (
 	httpDataCntDir = "/usr/local/apache2/htdocs"
 )
 
-func startHttpd(subj *pkix.Name, netName string) error {
+func startHttpd(config *immutil.ImmConfig) error {
+	subj := &config.Subj
 	hostname := subj.CommonName
 	caHostname := immutil.CAHostname+strings.TrimPrefix(hostname, immutil.HttpdHostname)
 
@@ -160,7 +161,7 @@ func startHttpd(subj *pkix.Name, netName string) error {
 				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
-			// ExternalIPs: []string{"192.168.120.183"}, // fix me
+			ExternalIPs: config.ExternalIPs,
 		},
 	}
 	serviceClient, err := immutil.K8sGetServiceClient()

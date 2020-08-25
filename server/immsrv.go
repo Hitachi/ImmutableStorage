@@ -67,8 +67,6 @@ const (
 	certPath = "/var/lib/immsrv/server.crt"
 	privPath = "/var/lib/immsrv/server.key"
 	workDir = "/var/lib/immsrv/work"
-	chConfDir = "/var/lib/immsrv/channel"
-	chConfPath = chConfDir + "/curChConf.yaml"
 
 	//	dockerNetPrefix = "net_hfl_"
 
@@ -110,6 +108,8 @@ const (
 
 	storageAdminAttr = "StorageAdmin"
 	grpAdminOU = "StorageGrpAdmin"
+
+	storageGrpPort = 7050
 )
 
 type signerState struct {
@@ -669,7 +669,31 @@ func createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName
 	return nil
 }
 
-func startOrderer(podName string) error {
+func getImmSrvExternalIPs() (ips []string, retErr error) {
+	ips = make([]string, 0)
+	client, retErr := immutil.K8sGetServiceClient()
+	if retErr != nil {
+		return
+	}
+
+	immsrvSvc, err := client.Get(context.TODO(), immutil.ImmsrvHostname, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to get a service: " + err.Error())
+		return
+	}
+
+	ips = immsrvSvc.Spec.ExternalIPs
+	return
+}
+
+func startOrderer(serviceName string) error {
+	podPortName := strings.SplitN(serviceName, ":", 2)
+	podName := podPortName[0]
+	port := storageGrpPort
+	if len(podName) > 2 {
+		port, _ = strconv.Atoi(podPortName[1])
+	}
+	
 	shortName := strings.SplitN(podName, ".", 2)[0]
 	podLabel := "app="+shortName 
 	
@@ -789,10 +813,16 @@ func startOrderer(podName string) error {
 	}
 	fmt.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
 
+		
 	// create a service
+	externalIPs, _ := getImmSrvExternalIPs()
+	
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: shortName,
+			Labels: map[string]string{
+				"type": "storageGrp",
+			},
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string] string{
@@ -800,7 +830,7 @@ func startOrderer(podName string) error {
 			},
 			Ports: []corev1.ServicePort{
 				corev1.ServicePort{
-					Port: 7050,
+					Port: int32(port),
 					TargetPort: intstr.IntOrString{
 						Type: intstr.Int,
 						IntVal: 7050,
@@ -808,7 +838,7 @@ func startOrderer(podName string) error {
 				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
-			//	ExternalIPs: []string{"192.168.120.183"}, // fix me
+			ExternalIPs: externalIPs,
 		},
 	}
 
@@ -1055,6 +1085,8 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	}
 	
 	// create a service
+	externalIPs, _ := getImmSrvExternalIPs()
+	
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: shortName,
@@ -1082,7 +1114,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
-			// ExternalIPs: []string{"192.168.120.183"}, // fix me
+			ExternalIPs: externalIPs,
 		},
 	}
 
@@ -1268,6 +1300,51 @@ func (s *server) ListService(ctx context.Context, req *immop.ListServiceRequest)
 	return
 }
 
+var storageGrpPorts = uint32(0)
+func (s *server) lockedbitset(bit int) bool {
+	old := storageGrpPorts
+	new := old | (1 << bit)
+	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
+}
+
+func (s *server) lockedbitreset(bit int) bool {
+	old := storageGrpPorts
+	new := old &^ (1 << bit)
+	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
+}
+
+func (s *server) allocStorageGrpPort() (port string, retErr error ) {
+	client, retErr := immutil.K8sGetServiceClient()
+	if retErr != nil {
+		return // error
+	}
+
+	list, err := client.List(context.TODO(), metav1.ListOptions{
+		LabelSelector: "type=storageGrp",
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to get a list of service: " + err.Error())
+		return // error
+	}
+
+	for _, svc := range list.Items {
+		portNum := (svc.Spec.Ports[0].Port - storageGrpPort)/100
+		s.lockedbitset(int(portNum))
+	}
+
+	for i := 0; i < 16; i++ {
+		if (storageGrpPorts & (1 << i)) == 0 {
+			if s.lockedbitset(i) {
+				port = strconv.Itoa(storageGrpPort+i)
+				return // success
+			}
+		}
+	}
+
+	retErr = fmt.Errorf("There is no unused port in this cluster.")
+	return
+}
+
 func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequest) (reply *immop.Reply, retErr error) {
 	reply = &immop.Reply{}
 	
@@ -1295,7 +1372,13 @@ func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequ
 		return
 	}
 
-	genesisBlock, err := fabconf.CreateGenesisBlock(req.ChannelID, ordererName/*secret name*/, anchorPeers)
+	port, retErr := s.allocStorageGrpPort()
+	if retErr != nil {
+		return
+	}
+
+	serviceName := ordererName+":"+port
+	genesisBlock, err := fabconf.CreateGenesisBlock(req.ChannelID, serviceName, anchorPeers)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create genesis block: %s", err)
 		return
@@ -1324,7 +1407,7 @@ func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequ
 		return
 	}
 
-	err = startOrderer(ordererName)
+	err = startOrderer(serviceName)
 	if err != nil {
 		retErr = err
 		return

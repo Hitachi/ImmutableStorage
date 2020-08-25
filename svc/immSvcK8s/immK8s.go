@@ -22,18 +22,18 @@ const (
 )
 
 func immSvc(cmd, org string, onlyImmsrvF bool) error {
-	subj, _, err := immutil.ReadConf(org)
+	config, err := immutil.ReadConf(org)
 	if err != nil {
 		return err
 	}
 
 	immsrvSubj := &pkix.Name{}
-	*immsrvSubj = *subj
-	immsrvSubj.CommonName = immutil.ImmsrvHostname + "." + subj.Organization[0]
+	*immsrvSubj = config.Subj
+	immsrvSubj.CommonName = immutil.ImmsrvHostname + "." + config.Subj.Organization[0]
 
 	envoySubj := &pkix.Name{}
-	*envoySubj = *subj
-	envoySubj.CommonName = immutil.EnvoyHostname + "." + subj.Organization[0]
+	*envoySubj = config.Subj
+	envoySubj.CommonName = immutil.EnvoyHostname + "." + config.Subj.Organization[0]
 	switch cmd {
 	case "start":
 		err = createImmsrvConf(immsrvSubj)
@@ -45,7 +45,7 @@ func immSvc(cmd, org string, onlyImmsrvF bool) error {
 			return err
 		}
 		
-		err = createPod(immsrvSubj, envoySubj)
+		err = createPod(immsrvSubj, envoySubj, config.ExternalIPs)
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func editEnvoyYaml(envoyYaml, immsrvHost, orginMatch string) error {
 	return nil
 }
 
-func createPod(immsrvSubj, envoySubj *pkix.Name) error {
+func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 	immsrvExport := immutil.ConfBaseDir+"/"+immsrvSubj.CommonName+exportDirSuffix
 	envoyExport := immutil.ConfBaseDir+"/"+envoySubj.CommonName+exportDirSuffix
 	
@@ -287,8 +287,8 @@ func createPod(immsrvSubj, envoySubj *pkix.Name) error {
 					},
 				},
 			},
-			//			Type: corev1.ServiceTypeLoadBalancer,
-			//			ExternalIPs: []string{"192.168.120.182"},
+			Type: corev1.ServiceTypeLoadBalancer,
+			ExternalIPs: externalIPs,
 		},
 	}
 	serviceClient, err := immutil.K8sGetServiceClient()

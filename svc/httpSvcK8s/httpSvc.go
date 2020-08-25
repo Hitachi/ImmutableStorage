@@ -23,20 +23,20 @@ func main(){
 }
 
 func httpSvc(cmd, org string) error {
-	subj, netName, err := immutil.ReadConf(org)
+	config, err := immutil.ReadConf(org)
 	if err != nil {
 		return err
 	}
-	subj.CommonName = immutil.HttpdHostname+"."+org
+	config.Subj.CommonName = immutil.HttpdHostname+"."+org
 	
 	switch cmd {
 	case "start":
-		err = startHttpd(subj, netName)
+		err = startHttpd(config)
 		if err != nil {
 			return err
 		}
 	case "stop":
-		stopHttpd(subj)
+		stopHttpd(&config.Subj)
 
 	default:
 		return fmt.Errorf("unknown command: %s\n", cmd)

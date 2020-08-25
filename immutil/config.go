@@ -35,7 +35,15 @@ const (
 	DockerNetPrefix = "net_hfl_"
 )
 
-func ReadConf(org string) (subj *pkix.Name, netName string, retErr error) {
+type ImmConfig struct {
+	Subj pkix.Name
+	NetName string `yaml:"DockerNetname"`
+	ExternalIPs []string `yaml:"ExternalIPs"`
+}
+
+func ReadConf(org string) (config *ImmConfig, retErr error) {
+	config = &ImmConfig{}
+	
 	confFile := ConfBaseDir + "/" + org + "/" + configYaml
 	confBuf, err := ioutil.ReadFile(confFile)
 	if err != nil {
@@ -43,29 +51,22 @@ func ReadConf(org string) (subj *pkix.Name, netName string, retErr error) {
 		return
 	}
 
-	subj = &pkix.Name{}
-	err = yaml.Unmarshal(confBuf, subj)
+	err = yaml.Unmarshal(confBuf, config)
+	if err != nil {
+		retErr = fmt.Errorf("could not read network configuration")
+		return
+	}
+	
+	err = yaml.Unmarshal(confBuf, &config.Subj)
 	if err != nil {
 		retErr = fmt.Errorf("could not read a subject")
 		return
 	}
 
-	tmpNetName := &struct{DockerNetname  string `yaml:"DockerNetname"`}{}
-	err = yaml.Unmarshal(confBuf, tmpNetName)
-	if err != nil {
-		retErr = fmt.Errorf("could not read docker network name")
-		return
-	}
-	netName = tmpNetName.DockerNetname
+	config.Subj.Organization = append(config.Subj.Organization, org)
 
-	if len(subj.Organization) >= 1 {
-		subj.Organization[0] = org
-	} else {
-		subj.Organization = append(subj.Organization, org)
-	}
-
-	if netName == "" {
-		netName = DockerNetPrefix+org
+	if config.NetName == "" {
+		config.NetName = DockerNetPrefix+org
 	}
 
 	return

@@ -20,7 +20,8 @@ const (
 	caDataDir = "/etc/hyperledger/fabric-ca-server"
 )
 
-func startCA(caAdminName, caAdminPass string, subj *pkix.Name, netName string ) error {
+func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
+	subj := &config.Subj
 	// create a CA for transcation
 	keyDir := immutil.ConfBaseDir+ "/"+subj.CommonName+ "/"+caConfHostDir 
 	caPrivFile, caCertFile, err := immutil.CreateSelfKeyPair(subj, keyDir)
@@ -133,7 +134,7 @@ func startCA(caAdminName, caAdminPass string, subj *pkix.Name, netName string ) 
 				},
 			},
 			Type: corev1.ServiceTypeLoadBalancer,
-			//ExternalIPs: []string{"192.168.120.183"}, // fix me
+			ExternalIPs: config.ExternalIPs,
 		},
 	}
 	serviceClient, err := immutil.K8sGetServiceClient()
