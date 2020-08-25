@@ -480,6 +480,7 @@ func makeRegisterTab() string {
 func makeKeyManageTab() string {
 	html := `<div class="tabcontent 2" id="keyManageContent">`
 	html += `  <div class="cert-area">`
+	
 	html += `    <div class="row">`
 	html += `      <div class="cert-item">`
 	html += `        <div class="immDSBtn">`
@@ -488,15 +489,28 @@ func makeKeyManageTab() string {
 	html += `      </div>`
 	html += `      <div class="cert-input"><label>Private key</label></div>`
 	html += `    </div>`
+	
 	html += `    <div class="row">`
 	html += `      <div class="cert-item">`
 	html += `        <div class="immDSBtn">`
-	html += `          <button onclick="exportKey(event)" id="exportKeyBtn">Export</button>`
-	html += `          <a id="exportKeyData"></a>`
+	html += `          <button onclick="exportKey(event, 'private')" id="exportPrivKeyBtn">Export</button>`
+	html += `          <a id="exportPrivKeyData"></a>`
 	html += `        </div>`
 	html += `      </div>`
-	html += `      <div class="cert-input"><label>Private key & certificate</label></div>`
+	html += `      <div class="cert-input"><label>Private key</label></div>`
 	html += `    </div>`
+
+	html += `    <div class="row">`
+	html += `      <div class="cert-item">`
+	html += `        <div class="immDSBtn">`
+	html += `          <button onclick="exportKey(event, 'certificate')" id="exportCertKeyBtn">Export</button>`
+	html += `          <a id="exportCertKeyData"></a>`
+	html += `        </div>`
+	html += `      </div>`
+	html += `      <div class="cert-input"><label>Certificate</label></div>`
+	html += `    </div>`
+
+	
 	html += `  </div>`
 	html += `</div>`
 	return html
@@ -897,8 +911,8 @@ func updateStorageGrpContent() {
 		html += `</div>`
 		html += `</div>`
 
-		consortium := doc.Call("getElementById", "storageGrpContent")
-		consortium.Set("innerHTML", html)
+		storageGrpCont := doc.Call("getElementById", "storageGrpContent")
+		storageGrpCont.Set("innerHTML", html)
 
 		updateAnchorPeers()
 	}()
@@ -1905,6 +1919,11 @@ func changeSecret(this js.Value, in []js.Value) interface{} {
 
 var exportKeyLock = int32(0)
 func exportKey(this js.Value, in []js.Value) interface{} {
+	if len(in) !=  2 {
+		return nil // unexpected argument
+	}
+	keyType := in[1].String()
+		
 	go func(){
 		if atomic.CompareAndSwapInt32(&exportKeyLock, 0, 1) == false {
 			return
@@ -1916,8 +1935,18 @@ func exportKey(this js.Value, in []js.Value) interface{} {
 			return
 		}
 
-		saveFile(id.Name+"_sk", id.Priv, "exportKeyData")
-		saveFile(id.Name+"-cert.pem", id.Cert, "exportKeyData")
+		if keyType == "private" {
+			saveFile(id.Name+"_sk", id.Priv, "exportPrivKeyData")
+			return
+		}
+
+		if keyType == "certificate" {
+			saveFile(id.Name+"-cert.pem", id.Cert, "exportCertKeyData")
+			return
+		}
+
+		// unexpected key type
+		return
 	}()
 	return nil
 }
