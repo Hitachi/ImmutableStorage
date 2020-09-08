@@ -69,7 +69,7 @@ func newChannelGroup(consortiumName, ordererName string, anchorPeers []*immop.Ex
 	if err != nil {
 		return
 	}
-	err = addValue(chGr, channelconfig.OrdererAddressesValue([]string{ordererName+":7050"}), ordererAdminsPolicyName)
+	err = addValue(chGr, channelconfig.OrdererAddressesValue([]string{ordererName}), ordererAdminsPolicyName)
 	if err != nil {
 		return
 	}
@@ -167,7 +167,7 @@ func newOrdererGroup(ordererName string) (ordererGr *common.ConfigGroup , err er
 	addValue(ordererGr, channelconfig.ConsensusTypeValue("solo", nil), channelconfig.AdminsPolicyKey)
 
 	
-	caCert, adminCert, tlsCACert, err := immutil.K8sGetCertsFromSecret(ordererName)
+	caCert, adminCert, tlsCACert, err := immutil.K8sGetCertsFromSecret(strings.SplitN(ordererName, ":", 2)[0])
 	if err != nil {
 		return
 	}
