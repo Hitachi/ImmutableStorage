@@ -22,7 +22,7 @@ const (
 	PeerImg = "hyperledger/fabric-peer:1.4.6"
 	DockerImg = "docker:19.03.9-dind"
 	
-	ImmHttpdImg = "httpd:2.4.43-alpine"
+	ImmHttpdImg = "httpd:2.4.46"
 
 	ImmSrvImg = "ubuntu:20.10"
 	EnvoyImg = "envoyproxy/envoy:v1.14.1"

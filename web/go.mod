@@ -1,10 +1,10 @@
-module immds
+module  immDS.wasm
 
 go 1.14
 
 replace immweb => ./immweb
 
-replace immop => ./immop
+replace immop => ../server/immop
 
 replace google.golang.org/grpc => ./grpc
 
