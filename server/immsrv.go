@@ -79,6 +79,9 @@ const (
 	contDockerCertDir = "/certs"
 	hostDockerVarDir = "docker-var"
 	contDockerVarDir = "/var/lib/docker"
+	hostDockerImgTar = "/immsrv/chaincode-base.tar"
+	contDockerImgTar = "/var/lib/chaincode-base.tar"
+	loadImgCmd = `dockerd-entrypoint.sh & while [ ! -S /var/run/docker.sock ]; do sleep 1; done; if [ "$(docker images -q hyperledger/fabric-baseos)" = "" ]; then cat `+contDockerImgTar+` | docker load; docker tag hyperledger/fabric-ccenv:1.4.7 hyperledger/fabric-ccenv:latest; fi; wait`
 	
 	fabDefaultConfDir = "/etc/hyperledger/fabric"
 	certsTarDir = "/var/lib/certs"
@@ -455,7 +458,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 	}{
 		"orderer": {
 			hasPrivilege: hasStorageGrpAdmin,
-			createEnv: createOrderer,
+			createEnv: s.createOrderer,
 			mspPrefix: fabconf.OrdererMspIDPrefix,
 		},
 		"peer": {
@@ -635,7 +638,12 @@ func getTarBuf(data []tarData) (bytes.Buffer, error) {
 	return buf, nil
 }
 
-func createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName string) error {
+func (s *server) createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName string) error {
+	port, err := s.allocStorageGrpPort()
+	if err != nil {
+		return err
+	}
+	
 	ordererEnvMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: hostname+"-env",
@@ -646,6 +654,7 @@ func createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName
 		Data: map[string]string{
 			"ORDERER_GENERAL_LOGLEVEL": "DEBUG",
 			"ORDERER_GENERAL_LISTENADDRESS": "0.0.0.0",
+			"ORDERER_GENERAL_LISTENPORT": port,
 			"ORDERER_GENERAL_GENESISMETHOD": "file",
 			"ORDERER_GENERAL_GENESISFILE": ordererGenesisFile,
 			"ORDERER_GENERAL_LOCALMSPID": mspID,
@@ -676,13 +685,40 @@ func getImmSrvExternalIPs() (ips []string, retErr error) {
 		return
 	}
 
-	immsrvSvc, err := client.Get(context.TODO(), immutil.ImmsrvHostname, metav1.GetOptions{})
+	envoySvc, err := client.Get(context.TODO(), immutil.EnvoyHostname, metav1.GetOptions{})
 	if err != nil {
 		retErr = fmt.Errorf("failed to get a service: " + err.Error())
 		return
 	}
 
-	ips = immsrvSvc.Spec.ExternalIPs
+	ips = envoySvc.Spec.ExternalIPs
+	return
+}
+
+func getStorageGrpPort(grpAdminHost string) (port int32) {
+	port = storageGrpPort
+	
+	client, err := immutil.K8sGetConfigMapsClient()
+	if err != nil {
+		return
+	}
+
+	configMap, err := client.Get(context.TODO(), grpAdminHost+"-env", metav1.GetOptions{})
+	if err != nil || configMap == nil {
+		return
+	}
+
+	portStr, ok := configMap.Data["ORDERER_GENERAL_LISTENPORT"]
+	if !ok {
+		return
+	}
+
+	envPort, err := strconv.Atoi(portStr)
+	if err != nil {
+		return
+	}
+
+	port = int32(envPort)
 	return
 }
 
@@ -731,6 +767,7 @@ func startOrderer(serviceName string) error {
 	genesisDir := strings.TrimSuffix(ordererGenesisFile, "/"+genesisFile[len(genesisFile)-1])
 	repn := int32(1)
 	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
+	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -781,6 +818,11 @@ func startOrderer(serviceName string) error {
 					},
 					Hostname: shortName,
 					Subdomain: immutil.K8sSubDomain,
+					DNSConfig: &corev1.PodDNSConfig{
+						Options: []corev1.PodDNSConfigOption{
+							{ Name: "ndots", Value: &ndots },
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name: shortName,
@@ -833,7 +875,7 @@ func startOrderer(serviceName string) error {
 					Port: int32(port),
 					TargetPort: intstr.IntOrString{
 						Type: intstr.Int,
-						IntVal: 7050,
+						IntVal: getStorageGrpPort(podName),
 					},
 				},
 			},
@@ -977,6 +1019,8 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	repn := int32(1)
 	privilegedF := bool(true)
 	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
+	pathTypeFile := corev1.HostPathType(corev1.HostPathFileOrCreate)
+	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
@@ -1006,6 +1050,15 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							},
 						},
 						{
+							Name: "file1",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: immutil.TmplDir+hostDockerImgTar,
+									Type: &pathTypeFile,
+								},
+							},
+						},
+						{
 							Name: "secret-vol1",
 							VolumeSource: corev1.VolumeSource{
 								Secret: &corev1.SecretVolumeSource{
@@ -1016,6 +1069,11 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					},
 					Hostname: shortName,
 					Subdomain: immutil.K8sSubDomain,
+					DNSConfig: &corev1.PodDNSConfig{
+						Options: []corev1.PodDNSConfigOption{
+							{ Name: "ndots", Value: &ndots },
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name: shortName,
@@ -1048,7 +1106,9 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							VolumeMounts: []corev1.VolumeMount{
 								{ Name: "vol1", MountPath: contDockerCertDir, SubPath: hostDockerCertDir, },
 								{ Name: "vol1", MountPath: contDockerVarDir, SubPath: hostDockerVarDir, },
+								{ Name: "file1", MountPath: contDockerImgTar, },
 							},
+							Command: []string{"sh", "-c", loadImgCmd},
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privilegedF,
 							},
@@ -1301,43 +1361,57 @@ func (s *server) ListService(ctx context.Context, req *immop.ListServiceRequest)
 }
 
 var storageGrpPorts = uint32(0)
-func (s *server) lockedbitset(bit int) bool {
+func (s *server) lockedbittestandset(bit int) bool {
 	old := storageGrpPorts
 	new := old | (1 << bit)
+	
+	if new == old {
+		return false
+	}
+		
 	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
 }
 
-func (s *server) lockedbitreset(bit int) bool {
+func (s *server) lockedbittestandreset(bit int) bool {
 	old := storageGrpPorts
 	new := old &^ (1 << bit)
+
+	if new == old {
+		return false
+	}
+	
 	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
 }
 
 func (s *server) allocStorageGrpPort() (port string, retErr error ) {
-	client, retErr := immutil.K8sGetServiceClient()
+	client, retErr := immutil.K8sGetConfigMapsClient()
 	if retErr != nil {
 		return // error
 	}
 
 	list, err := client.List(context.TODO(), metav1.ListOptions{
-		LabelSelector: "type=storageGrp",
+		LabelSelector: "app=orderer",
 	})
 	if err != nil {
 		retErr = fmt.Errorf("failed to get a list of service: " + err.Error())
 		return // error
 	}
 
-	for _, svc := range list.Items {
-		portNum := (svc.Spec.Ports[0].Port - storageGrpPort)/100
-		s.lockedbitset(int(portNum))
+	for _, configMap := range list.Items {
+		portStr, ok := configMap.Data["ORDERER_GENERAL_LISTENPORT"]
+		if !ok {
+			continue
+		}
+
+		portNum, _ := strconv.Atoi(portStr)
+		bit := (portNum - storageGrpPort)/100
+		s.lockedbittestandset(int(bit))
 	}
 
 	for i := 0; i < 16; i++ {
-		if (storageGrpPorts & (1 << i)) == 0 {
-			if s.lockedbitset(i) {
-				port = strconv.Itoa(storageGrpPort+i)
-				return // success
-			}
+		if s.lockedbittestandset(i) {
+			port = strconv.Itoa(storageGrpPort+i*100)
+			return // success
 		}
 	}
 
@@ -1372,11 +1446,7 @@ func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequ
 		return
 	}
 
-	port, retErr := s.allocStorageGrpPort()
-	if retErr != nil {
-		return
-	}
-
+	port := strconv.Itoa(int(getStorageGrpPort(grpAdminHost)))
 	serviceName := ordererName+":"+port
 	genesisBlock, err := fabconf.CreateGenesisBlock(req.ChannelID, serviceName, anchorPeers)
 	if err != nil {
