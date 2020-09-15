@@ -272,7 +272,7 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 	// create a service
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: immutil.ImmsrvHostname,
+			Name: immutil.EnvoyHostname,
 		},
 		Spec: corev1.ServiceSpec{
 			Selector: map[string] string{
@@ -335,7 +335,7 @@ func removeItemInHttpdConf(src []byte, hostname, newItem string) ([]byte, bool) 
 
 func makeHttpdConf(envoySubj *pkix.Name) error {
 	httpdConfFile := immutil.ConfBaseDir+ "/"+immutil.HttpdHostname+"."+envoySubj.Organization[0] + "/conf/httpd.conf"
-	envoyHost := immutil.ImmsrvHostname+"."+envoySubj.Organization[0]
+	envoyHost := immutil.EnvoyHostname+"."+envoySubj.Organization[0]
 	
 	src, err := ioutil.ReadFile(httpdConfFile)
 	if err != nil {
@@ -367,7 +367,7 @@ func makeHttpdConf(envoySubj *pkix.Name) error {
 }
 
 func stopImmServer(immsrvSubj, envoySubj *pkix.Name) error {
-	err := immutil.K8sDeleteService(immutil.ImmsrvHostname)
+	err := immutil.K8sDeleteService(immutil.EnvoyHostname)
 	if err != nil {
 		return err
 	}
