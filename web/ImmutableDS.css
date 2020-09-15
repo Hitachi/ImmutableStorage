@@ -73,7 +73,7 @@ label {
 .tabcontent {
     overflow: hidden;
     display: none;
-    //padding: 10px 0px;
+    /*padding: 10px 0px;*/
     border: 1px solid silver;
     border-top: none;
 }
@@ -140,9 +140,9 @@ label.checkbox .checkmark:after {
 
 table {
   border-collapse: collapse;
-  border: 2px solid #c8c8c8
+  border: 2px solid #c8c8c8;
   letter-spacing: 1px;
-  //font-size: 0.8rem;
+  /*font-size: 0.8rem;*/
   font-size: 18px;
 }
 
@@ -209,14 +209,16 @@ caption {
     border: 2px solid black;
 }
 
-//.radioArea:hover {
-//   border: 2px solid black;
-//    border-radius: 15px;
-//}
+/*
+.radioArea:hover {
+   border: 2px solid black;
+    border-radius: 15px;
+}
+*/
 
 .radioArea input:checked ~ .radioBox {
     background-color: hotpink;
-    //border: 2px solid black;
+    /*border: 2px solid black;*/
 }
 
 .radioArea input:checked ~ .radioBox:after {
@@ -247,7 +249,7 @@ caption {
     display: inline;
     float: left;
     width: 20%;
-    //padding-right: 10px
+    /*padding-right: 10px*/
  }
 
 .mspid {
@@ -259,8 +261,10 @@ caption {
     display: inline;
 }
 .serviceCreateBtn {
-    //float: right;
-    //width: 10%;
+    /*
+    float: right;
+    width: 10%;
+    */
     display: inline;
     position: relative;
     left: 10px;
@@ -320,7 +324,7 @@ caption {
 
 .dropdownContent a {
     color: black;
-    padding: 12px, 16px;
+    /*padding: 12px 16px;*/
     text-decoration: none;
     display: block;
     border: 1px solid gray;
@@ -351,7 +355,7 @@ caption {
 .reqboxcontent {
     background-color: lightgray;
     margin: 5% auto;
-    padding: 16px auto;
+    padding: 16px;
     
     border-radius: 5px;
     border: 5px solid black;
