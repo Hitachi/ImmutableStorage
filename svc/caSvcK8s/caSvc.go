@@ -10,13 +10,17 @@ import (
 )
 
 func main(){
-	if len(os.Args) != 3 {
-		fmt.Printf("Usage: caSvc {start|stop} organization_name\n")
+	argsLen := len(os.Args)
+	if (argsLen != 3) && (argsLen != 2) {
+		fmt.Printf("Usage: caSvc {start|stop} [organization_name]\n")
 		os.Exit(1)
 	}
 
 	cmd := os.Args[1]
-	org := os.Args[2]
+	org := ""
+	if argsLen == 3 {
+		org = os.Args[2]
+	}
 	err := caSvc(cmd, org)
 	if err != nil {
 		fmt.Printf("%s\n", err)
@@ -41,7 +45,7 @@ func caSvc(cmd, org string) error {
 	caAdminPass := randStr(8)
 	//	caAdminPass := "adminpw"
 
-	config, err := immutil.ReadConf(org)
+	config, org, err := immutil.ReadOrgConfig(org)
 	if err != nil {
 		return err
 	}
