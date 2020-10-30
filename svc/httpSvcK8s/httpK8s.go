@@ -10,6 +10,8 @@ import (
 	"crypto/x509/pkix"
 	"fmt"
 	"os"
+	"io/ioutil"
+	"bytes"
 	"strings"
 
 	"immutil"
@@ -28,19 +30,16 @@ func startHttpd(config *immutil.ImmConfig) error {
 	caHostname := immutil.CAHostname+strings.TrimPrefix(hostname, immutil.HttpdHostname)
 
 	// create keys for a HTTPD
-	keyDir := immutil.ConfBaseDir + "/"+subj.CommonName + "/"+confHostSuffix
-	privFile, certFile, err := immutil.CreateSelfKeyPair(subj, keyDir)
+	secretName, err := immutil.K8sCreateSelfKeyPair(subj)
 	if err != nil {
 		return fmt.Errorf("failed to create keys for a HTTPD: %s", err)
 	}
 
 	// create configuration files
-	httpBaseDir := immutil.ConfBaseDir + "/" + hostname
+	httpBaseDir := immutil.VolBaseDir + "/" + hostname
 	httpConfDir := httpBaseDir + "/" + confHostSuffix
 	tmplConfDir := immutil.TmplDir + "/" + tmplConfHostSuffix
-	serverKeyFile := httpConfDir + "/" + "server.key"
-	
-	_, err = os.Stat(serverKeyFile)
+	_, err = os.Stat(httpConfDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// copy template files
@@ -49,39 +48,51 @@ func startHttpd(config *immutil.ImmConfig) error {
 				return err2
 			}
 
-			// copy a private key
-			err2 = immutil.CopyFile(httpConfDir+"/"+privFile, httpConfDir+"/server.key", 0400)
-			if err2 != nil {
-				return fmt.Errorf("could not copy a private key: %s", err2)
-			}
-
-			// copy a certificate
-			err2 = immutil.CopyFile(httpConfDir+"/"+certFile, httpConfDir+"/server.crt", 0444)
-			if err2 != nil {
-				os.RemoveAll(serverKeyFile)
-				return fmt.Errorf("could not copy certificate: %s", err2)
-			}
-				
+			// edit httpd.conf
 			httpConfFile, err2 := os.OpenFile(httpConfDir + "/httpd.conf", os.O_WRONLY|os.O_APPEND, 0644)
 			if err2 != nil {
-				os.RemoveAll(serverKeyFile)
-				return fmt.Errorf("failed to open a configuration file: %s\n", err2)
+				return fmt.Errorf("failed to open a configuration file: %s", err2)
 			}
 			httpConfFile.Write([]byte("ProxyPass \"/ca\" \"https://" + caHostname + ":7054\"\n"))
 			httpConfFile.Close()
+
+			// edit extra/httpd-ssl.conf
+			sslConfFile := httpConfDir + "/extra/httpd-ssl.conf"
+			httpSslConf, err2 := ioutil.ReadFile(sslConfFile)
+			if err2 != nil {
+				return fmt.Errorf("failed to read httpd-ssl.conf: %s", err2)
+			}
+
+			httpSslConf = bytes.Replace(httpSslConf, []byte("HOSTNAME"), []byte(hostname), 1)
+			err2 = ioutil.WriteFile(sslConfFile, httpSslConf, 0644)
+			if err2 != nil {
+				return fmt.Errorf("failed to edit httpd-ssl.conf: %s", err2)
+			}
 		} else {
 			return fmt.Errorf("unexpected file state: %s", httpConfDir)
 		}
 	}
 
+	org := subj.Organization[0]
+	workVol, err := immutil.K8sGetOrgWorkVol(org)
+	if err != nil {
+		return err
+	}
 
+	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
+	if err == nil {
+		pullRegAddr += "/"
+	}
+	
+	// deploy a pod and a service
 	deployClient, err := immutil.K8sGetDeploymentClient()
 	if err != nil {
 		return err
 	}
 
 	repn := int32(1)
-	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
+	privMode := int32(0400)
+	certMode := int32(0444)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: hostname,
@@ -103,10 +114,17 @@ func startHttpd(config *immutil.ImmConfig) error {
 					Volumes: []corev1.Volume{
 						{
 							Name: "vol1",
+							VolumeSource: *workVol,
+						},
+						{
+							Name: "keys-vol1",
 							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: httpBaseDir,
-									Type: &pathType,
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: secretName,
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: "server.key", Mode: &privMode },
+										{ Key: "cert", Path: "server.crt", Mode: &certMode },
+									},
 								},
 							},
 						},
@@ -116,10 +134,11 @@ func startHttpd(config *immutil.ImmConfig) error {
 					Containers: []corev1.Container{
 						{
 							Name: immutil.HttpdHostname,
-							Image: immutil.ImmHttpdImg,
+							Image: pullRegAddr + immutil.ImmHttpdImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: httpConfCntDir, SubPath: "conf", },
-								{ Name: "vol1", MountPath: httpDataCntDir, SubPath: "html", },
+								{ Name: "vol1", MountPath: httpConfCntDir, SubPath: hostname+"/conf", },
+								{ Name: "vol1", MountPath: httpDataCntDir, SubPath: hostname+"/html", },
+								{ Name: "keys-vol1", MountPath: httpConfCntDir+"/keys", },
 							},
 							Ports: []corev1.ContainerPort{
 								{
@@ -160,10 +179,14 @@ func startHttpd(config *immutil.ImmConfig) error {
 					},
 				},
 			},
-			Type: corev1.ServiceTypeLoadBalancer,
-			ExternalIPs: config.ExternalIPs,
 		},
 	}
+	if len(config.ExternalIPs) > 0 {
+		service.Spec.ExternalIPs = config.ExternalIPs
+	}else{
+		service.Spec.Type = corev1.ServiceTypeLoadBalancer
+	}
+	
 	serviceClient, err := immutil.K8sGetServiceClient()
 	if err != nil {
 		return err

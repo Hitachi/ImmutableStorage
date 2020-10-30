@@ -22,18 +22,18 @@ const (
 )
 
 func immSvc(cmd, org string, onlyImmsrvF bool) error {
-	config, err := immutil.ReadConf(org)
+	config, org, err := immutil.ReadOrgConfig(org)
 	if err != nil {
 		return err
 	}
 
 	immsrvSubj := &pkix.Name{}
 	*immsrvSubj = config.Subj
-	immsrvSubj.CommonName = immutil.ImmsrvHostname + "." + config.Subj.Organization[0]
+	immsrvSubj.CommonName = immutil.ImmsrvHostname + "." + org
 
 	envoySubj := &pkix.Name{}
 	*envoySubj = config.Subj
-	envoySubj.CommonName = immutil.EnvoyHostname + "." + config.Subj.Organization[0]
+	envoySubj.CommonName = immutil.EnvoyHostname + "." + org
 	switch cmd {
 	case "start":
 		err = createImmsrvConf(immsrvSubj)
@@ -68,62 +68,15 @@ func immSvc(cmd, org string, onlyImmsrvF bool) error {
 
 func createImmsrvConf(subj *pkix.Name) error {
 	hostname := subj.CommonName
-	immsrvBaseDir := immutil.ConfBaseDir+"/"+hostname
+	immsrvBaseDir := immutil.VolBaseDir+"/"+hostname
 	tmplImmSrvConf := immutil.TmplDir+"/immsrv"
+
+	_, err := immutil.K8sCreateSelfKeyPair(subj)
+	if err != nil {
+		return fmt.Errorf("failed to create keys: %s", err)
+	}
+
 	exportDir := immsrvBaseDir + exportDirSuffix
-
-	err := createConf(subj, tmplImmSrvConf, immsrvBaseDir)
-	if err != nil {
-		return err
-	}
-
-	// copy a CA certificate
-	org := subj.Organization[0]
-	caHost := immutil.CAHostname+"."+org
-	caCertFile := immutil.ConfBaseDir + "/"+caHost + "/"+caConfHostDir +"/"+caHost+"-cert.pem"
-	dstCaCertFile := exportDir + "/ca.crt"
-	_, err = os.Stat(dstCaCertFile)
-	if err != nil {
-		if os.IsNotExist(err) == false {
-			return fmt.Errorf("unexpected file state: %s: %s", dstCaCertFile, err.Error())
-		}
-		err = immutil.CopyFile(caCertFile, dstCaCertFile, 0444)
-		if err != nil {
-			return err
-		}
-	}
-
-	return immutil.K8sSetOrgInCoreDNSConf(org)
-}
-
-func createEnvoyConf(subj *pkix.Name) error {
-	hostname := subj.CommonName
-	dstConfDir := immutil.ConfBaseDir + "/" + hostname
-
-	err := createConf(subj, immutil.TmplDir+"/envoy", dstConfDir)
-	if err != nil {
-		return err
-	}
-
-	// set immsrv-hostname in envoy.yaml
-	envoyYaml := dstConfDir + exportDirSuffix + "/envoy.yaml"
-	err = editEnvoyYaml(envoyYaml, "localhost", immutil.K8sLocalSvc)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func createConf(subj *pkix.Name, tmplConfDir, dstConfDir string) error {
-	exportDir := dstConfDir + exportDirSuffix
-
-	// create keys
-	privFile, certFile, err := immutil.CreateSelfKeyPair(subj, dstConfDir)
-	if err != nil {
-		return fmt.Errorf("failed to create keys\n")
-	}
-
 	_, err = os.Stat(exportDir)
 	if err == nil {
 		return nil
@@ -132,50 +85,59 @@ func createConf(subj *pkix.Name, tmplConfDir, dstConfDir string) error {
 		return fmt.Errorf("unexpected file state: %s: %s", exportDir, err.Error())
 	}
 
-	// create configuration files
 	// copy template
-	err = immutil.CopyTemplate(tmplConfDir, exportDir)
+	err = immutil.CopyTemplate(tmplImmSrvConf, exportDir)
 	if err != nil {
 		return err
 	}
 
-	// copy private key
-	err = immutil.CopyFile(dstConfDir+"/"+privFile, exportDir+"/server.key", 0400)
-	if err != nil {
-		os.RemoveAll(exportDir)
-		return fmt.Errorf("could not copy a private key: %s", err)
-	}
-
-	// copy certificate
-	err = immutil.CopyFile(dstConfDir+"/"+certFile, exportDir+"/server.crt", 0444)
-	if err != nil {
-		os.RemoveAll(exportDir)
-		return fmt.Errorf("could not copy a certificate: %s", err)
-	}
-
-	return nil
+	// set DNS
+	org := subj.Organization[0]
+	return immutil.K8sSetOrgInCoreDNSConf(org)
 }
 
-func editEnvoyYaml(envoyYaml, immsrvHost, orginMatch string) error {
-	srcBuf, err := ioutil.ReadFile(envoyYaml)
+func createEnvoyConf(subj *pkix.Name) error {
+	hostname := subj.CommonName
+
+	_, err := immutil.K8sCreateSelfKeyPair(subj)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create keys: %s", err)
 	}
 
+	// set immsrv-hostname in envoy.yaml
+	_, retErr := immutil.K8sReadEnvoyConfig(hostname)
+	if retErr == nil {
+		return nil // This configuration already exists
+	}
+	
+	envoyYaml, err := ioutil.ReadFile(immutil.TmplDir + "envoy/envoy.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read a template: %s", err)
+	}
+	envoyYaml = editEnvoyYaml(envoyYaml, "localhost", immutil.K8sLocalSvc)
+
+	return immutil.K8sWriteEnvoyConfig(hostname, string(envoyYaml))
+}
+
+func editEnvoyYaml(srcBuf []byte, immsrvHost, orginMatch string) []byte {
 	dstBuf0 := bytes.Replace(srcBuf, []byte("HOSTNAME"), []byte(immsrvHost), 1)
-	dstBuf  := bytes.Replace(dstBuf0, []byte("DOMAINNAME"), []byte(orginMatch), 1)
-
-	err = ioutil.WriteFile(envoyYaml, dstBuf, 0644)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return bytes.Replace(dstBuf0, []byte("DOMAINNAME"), []byte(orginMatch), 1)
 }
 
 func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
-	immsrvExport := immutil.ConfBaseDir+"/"+immsrvSubj.CommonName+exportDirSuffix
-	envoyExport := immutil.ConfBaseDir+"/"+envoySubj.CommonName+exportDirSuffix
+	envoyConfigName := envoySubj.CommonName
+	immsrvHostname := immsrvSubj.CommonName
+
+	org := immsrvSubj.Organization[0]
+	workVol, err := immutil.K8sGetOrgWorkVol(org)
+	if err != nil {
+		return err
+	}
+
+	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
+	if err == nil {
+		pullRegAddr += "/"
+	}
 	
 	// start a Pod
 	deployClient, err := immutil.K8sGetDeploymentClient()
@@ -184,10 +146,11 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 	}
 
 	repn := int32(1)
-	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
+	privMode := int32(0400)
+	certMode := int32(0444)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: immsrvSubj.CommonName,
+			Name: immsrvHostname,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas:&repn,
@@ -206,19 +169,39 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 					Volumes: []corev1.Volume{
 						{
 							Name: "immsrv-vol1",
+							VolumeSource: *workVol,
+						},
+						{
+							Name: "immsrv-keys-vol",
 							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: immsrvExport,
-									Type: &pathType,
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: immsrvSubj.CommonName,
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: "server.key", Mode: &privMode },
+										{ Key: "cert", Path: "server.crt", Mode: &certMode },
+									},
 								},
 							},
 						},
 						{
-							Name: "envoy-vol1",
+							Name: "envoy-configmap-vol",
 							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: envoyExport,
-									Type: &pathType,
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: envoyConfigName,
+									},
+								},
+							},
+						},
+						{
+							Name: "envoy-keys-vol",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: envoySubj.CommonName,
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: "server.key", Mode: &privMode },
+										{ Key: "cert", Path: "server.crt", Mode: &certMode },
+									},
 								},
 							},
 						},
@@ -228,9 +211,10 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 					Containers: []corev1.Container{
 						{
 							Name: immutil.ImmsrvHostname,
-							Image: immutil.ImmSrvImg,
+							Image: pullRegAddr + immutil.ImmSrvImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "immsrv-vol1", MountPath: "/var/lib/immsrv", },
+								{ Name: "immsrv-vol1", MountPath: "/var/lib/immsrv", SubPath: immsrvHostname+exportDirSuffix, },
+								{ Name: "immsrv-keys-vol", MountPath: "/var/lib/immsrv/keys", },
 							},
 							Command: []string{"/var/lib/immsrv/immsrv"},
 							Ports: []corev1.ContainerPort{
@@ -243,12 +227,13 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 						},
 						{
 							Name: immutil.EnvoyHostname,
-							Image: immutil.EnvoyImg,
+							Image: pullRegAddr + immutil.EnvoyImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "envoy-vol1", MountPath: "/etc/envoy", },
+								{ Name: "envoy-vol1", MountPath: "/etc/envoy/conf", },
+								{ Name: "envoy-keys-vol", MountPath: "/etc/envoy/keys", },
 							},
-							Command: []string{"/usr/local/bin/envoy", "-c", "/etc/envoy/envoy.yaml", "-l", "debug"},
-							//Command: []string{"/usr/local/bin/envoy", "-c", "/etc/envoy/envoy.yaml"},
+							Command: []string{"/usr/local/bin/envoy", "-c", "/etc/envoy/conf/envoy.yaml", "-l", "debug"},
+							//Command: []string{"/usr/local/bin/envoy", "-c", "/etc/envoy/conf/envoy.yaml"},
 							Ports: []corev1.ContainerPort{
 								{
 									Name: "grpc-web",
@@ -287,10 +272,15 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 					},
 				},
 			},
-			Type: corev1.ServiceTypeLoadBalancer,
-			ExternalIPs: externalIPs,
 		},
 	}
+	if len(externalIPs) > 0 {
+		service.Spec.ExternalIPs = externalIPs
+	}else{
+		service.Spec.Type = corev1.ServiceTypeLoadBalancer
+	}
+
+	
 	serviceClient, err := immutil.K8sGetServiceClient()
 	if err != nil {
 		return err
@@ -304,29 +294,30 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 	return nil
 }
 
-func removeItemInHttpdConf(src []byte, hostname, newItem string) ([]byte, bool) {
-	itemI := bytes.Index(src, []byte(hostname))
+func removeItemInHttpdConf(src []byte, removeLine, newItem string) ([]byte, bool) {
+	itemI := bytes.Index(src, []byte(removeLine))
 	if itemI == -1 {
 		// not found
 		return src, false
 	}
 
-	endI := bytes.Index(src[itemI:], []byte("\n"))
 	beginI := bytes.LastIndex(src[:itemI], []byte("\n"))
-
-	item := make([]byte, len(src[beginI+1:]))
-	item = append([]byte(nil), src[beginI+1:]...)
+	srcItem := src[beginI+1:]
+	endI := bytes.Index(srcItem, []byte("\n"))
+	
+	if endI == -1 {
+		endI = len(srcItem) - 1
+	}
+	srcItem = srcItem[:endI+1]
+	item := make([]byte, len(srcItem))
+	copy(item, srcItem)
 
 	removedItem := make([]byte, beginI+1)
-	removedItem = append([]byte(nil), src[:beginI+1]...)
-
-	if endI != -1 {
-		item = item[:itemI+endI-beginI-1]
-		removedItem = append(removedItem, src[itemI+endI+1:]...)
-	}
-
-	if newItem != string(item) {
-		// newItem has already exits in this source.
+	copy(removedItem, src[:beginI+1])
+	removedItem = append(removedItem, src[beginI+1+len(item):]...)
+		
+	if newItem == string(item) {
+		// newItem already exists in this source.
 		return nil, false
 	}
 
@@ -334,7 +325,7 @@ func removeItemInHttpdConf(src []byte, hostname, newItem string) ([]byte, bool) 
 }
 
 func makeHttpdConf(envoySubj *pkix.Name) error {
-	httpdConfFile := immutil.ConfBaseDir+ "/"+immutil.HttpdHostname+"."+envoySubj.Organization[0] + "/conf/httpd.conf"
+	httpdConfFile := immutil.VolBaseDir+ "/"+immutil.HttpdHostname+"."+envoySubj.Organization[0] + "/conf/httpd.conf"
 	envoyHost := immutil.EnvoyHostname+"."+envoySubj.Organization[0]
 	
 	src, err := ioutil.ReadFile(httpdConfFile)
