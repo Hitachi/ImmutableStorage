@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net"
-	"net/http"
 
 	"immop"
 	"immutil"
@@ -63,10 +62,8 @@ import (
 
 const (
 	port = ":50051"
-	parentCertPath = "/var/lib/immsrv/ca.crt"
-	certPath = "/var/lib/immsrv/server.crt"
-	privPath = "/var/lib/immsrv/server.key"
-	workDir = "/var/lib/immsrv/work"
+	certPath = "/var/lib/immsrv/keys/server.crt"
+	privPath = "/var/lib/immsrv/keys/server.key"
 
 	//	dockerNetPrefix = "net_hfl_"
 
@@ -74,14 +71,11 @@ const (
 
 	hostKeyDir = "key"
 	hostConfDir = "conf"
-	hostDataDir = "data"
-	hostDockerCertDir = "docker-certs"
+	hostDataDir = "/data"
+	hostDockerCertDir = "/docker-certs"
 	contDockerCertDir = "/certs"
-	hostDockerVarDir = "docker-var"
+	hostDockerVarDir = "/docker-var"
 	contDockerVarDir = "/var/lib/docker"
-	hostDockerImgTar = "/immsrv/chaincode-base.tar"
-	contDockerImgTar = "/var/lib/chaincode-base.tar"
-	loadImgCmd = `dockerd-entrypoint.sh & while [ ! -S /var/run/docker.sock ]; do sleep 1; done; if [ "$(docker images -q hyperledger/fabric-baseos)" = "" ]; then cat `+contDockerImgTar+` | docker load; docker tag hyperledger/fabric-ccenv:1.4.7 hyperledger/fabric-ccenv:latest; fi; wait`
 	
 	fabDefaultConfDir = "/etc/hyperledger/fabric"
 	certsTarDir = "/var/lib/certs"
@@ -130,8 +124,8 @@ type signerState struct {
 
 type server struct{
 	parentCert *x509.Certificate
-	tlsCAPrivPath, tlsCACertPath string
-
+	parentCertPem []byte
+	org string
 	signer map[string]*signerState
 }
 
@@ -311,62 +305,6 @@ func hasStorageGrpAdmin(cert *x509.Certificate) bool {
 	return getGrpAdminHost(cert) != ""
 }
 
-func sendReqCA(req *http.Request) (result interface{}, retErr error){
-	caCertData, err := ioutil.ReadFile(parentCertPath)
-	if err != nil {
-		retErr = fmt.Errorf("failed to read a CA certificate: %s\n")
-		return
-	}
-	rootCAPool := x509.NewCertPool()
-	ok := rootCAPool.AppendCertsFromPEM(caCertData)
-	if !ok {
-		retErr = fmt.Errorf("failed to append a certificate for the CA")
-		return
-	}
-	
-	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: rootCAPool}}
-	client := &http.Client{Transport: tr}
-	//client := &http.Client{}
-	resp, err := client.Do(req)
-	if (err != nil) || resp.Body == nil {
-		retErr = fmt.Errorf("failed to request: " + err.Error())
-		return
-	}
-	var respBody []byte
-	respBody, err = ioutil.ReadAll(resp.Body)
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			fmt.Printf("failed to close the body: %s\n", err)
-		}
-	}()
-	if err != nil {
-		retErr = fmt.Errorf("could not read the body: " + err.Error())
-		return
-	}
-
-	fmt.Printf("body: \n%s\n", hex.Dump(respBody))
-        
-	body := &Response{}
-	err = json.Unmarshal(respBody, body)
-	if err != nil {
-		retErr = fmt.Errorf("unexpected body: " + err.Error())
-		return
-	}
-	if len(body.Errors) > 0 {
-		var retStr string
-		for _, errMsg := range body.Errors {
-			retStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x\n", errMsg.Code)
-		}
-		
-		retErr = fmt.Errorf(retStr)
-		return
-	}
-
-	result = body.Result
-	return
-}
-
 func (s *server) createConfigYaml() []byte {
 	yaml := `
 NodeOUs:
@@ -453,7 +391,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 
 	svcItems := map[string] struct{
 		hasPrivilege func(cert *x509.Certificate) bool
-		createEnv func(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile, netName string) error
+		createEnv func(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 		mspPrefix string
 	}{
 		"orderer": {
@@ -530,18 +468,13 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 		return
 	}
 
-	tlsCAPriv, err := ioutil.ReadFile(s.tlsCAPrivPath)
+	tlsCAPriv, tlsCACert, err := immutil.K8sGetKeyPair(immutil.TlsCAHostname+"."+s.org)
 	if err != nil {
-		retErr = fmt.Errorf("failed to read a private key of TLS CA: "+err.Error())
-		return
-	}
-	tlsCACert, err := ioutil.ReadFile(s.tlsCACertPath)
-	if err != nil {
-		retErr = fmt.Errorf("failed to read a certificate of TLS CA: "+err.Error())
+		retErr = fmt.Errorf("failed to read a key-pair for TLS CA: " + err.Error())
 		return
 	}
 
-	tlsCert, retErr := signPublicKey(tlsPub, &cert.Subject, tlsCAPriv, tlsCACert)
+	tlsCert, retErr := signPublicKey(tlsPub, &cert.Subject, tlsCAPriv, tlsCACert, nil)
 	if retErr != nil {
 		return
 	}
@@ -552,11 +485,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 
 		
 	// create a secret
-	caCert, err := ioutil.ReadFile(parentCertPath)
-	if err != nil {
-		retErr = fmt.Errorf("could not read a CA certificate: " + err.Error())
-		return
-	}
+	caCert := s.parentCertPem
 	skiStr := hex.EncodeToString(pubSki[:])
 
 	mspID := svc.mspPrefix + org
@@ -604,8 +533,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 	print("Create a secret: " + resultSecret.GetObjectMeta().GetName() + "\n")
 	
 	// create an enviroment
-	netName := immutil.DockerNetPrefix + org
-	retErr = svc.createEnv(host, mspID, tlsPrivFile, tlsCertFile, tlsCACertFile, netName)
+	retErr = svc.createEnv(host, org, tlsPrivFile, tlsCertFile, tlsCACertFile)
 	
 	return
 }
@@ -638,7 +566,8 @@ func getTarBuf(data []tarData) (bytes.Buffer, error) {
 	return buf, nil
 }
 
-func (s *server) createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName string) error {
+func (s *server) createOrderer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
+	mspID := fabconf.OrdererMspIDPrefix + org
 	port, err := s.allocStorageGrpPort()
 	if err != nil {
 		return err
@@ -678,23 +607,6 @@ func (s *server) createOrderer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAF
 	return nil
 }
 
-func getImmSrvExternalIPs() (ips []string, retErr error) {
-	ips = make([]string, 0)
-	client, retErr := immutil.K8sGetServiceClient()
-	if retErr != nil {
-		return
-	}
-
-	envoySvc, err := client.Get(context.TODO(), immutil.EnvoyHostname, metav1.GetOptions{})
-	if err != nil {
-		retErr = fmt.Errorf("failed to get a service: " + err.Error())
-		return
-	}
-
-	ips = envoySvc.Spec.ExternalIPs
-	return
-}
-
 func getStorageGrpPort(grpAdminHost string) (port int32) {
 	port = storageGrpPort
 	
@@ -729,8 +641,10 @@ func startOrderer(serviceName string) error {
 	if len(podName) > 2 {
 		port, _ = strconv.Atoi(podPortName[1])
 	}
-	
-	shortName := strings.SplitN(podName, ".", 2)[0]
+
+	tmpStrs := strings.SplitN(podName, ".", 2)
+	shortName := tmpStrs[0]
+	org := tmpStrs[1]
 	podLabel := "app="+shortName 
 	
 	podState, stateVer, err := immutil.K8sGetPodState(podLabel, podName)
@@ -757,6 +671,16 @@ func startOrderer(serviceName string) error {
 	ordererEnv := []corev1.EnvFromSource{
 		{ ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{ Name: podName+"-env",},},},
 	}
+
+	workVol, err := immutil.K8sGetOrgWorkVol(org)
+	if err != nil {
+		return err
+	}
+
+	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
+	if err == nil {
+		pullRegAddr += "/"
+	}
 	
 	deployClient, err := immutil.K8sGetDeploymentClient()
 	if err != nil {
@@ -766,7 +690,6 @@ func startOrderer(serviceName string) error {
 	genesisFile := strings.Split(ordererGenesisFile, "/")
 	genesisDir := strings.TrimSuffix(ordererGenesisFile, "/"+genesisFile[len(genesisFile)-1])
 	repn := int32(1)
-	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -790,12 +713,7 @@ func startOrderer(serviceName string) error {
 					Volumes: []corev1.Volume{
 						{
 							Name: "vol1",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: immutil.ConfBaseDir+"/"+podName,
-									Type: &pathType,
-								},
-							},
+							VolumeSource: *workVol,
 						},
 						{
 							Name: "secret-vol1",
@@ -826,9 +744,9 @@ func startOrderer(serviceName string) error {
 					Containers: []corev1.Container{
 						{
 							Name: shortName,
-							Image: immutil.OrdererImg,
+							Image: pullRegAddr + immutil.OrdererImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: ordererDataDir, SubPath: hostDataDir, },
+								{ Name: "vol1", MountPath: ordererDataDir, SubPath: podName+hostDataDir, },
 								{ Name: "secret-vol1", MountPath: certsTarDir, },
 								{ Name: "configmap-vol1", MountPath: genesisDir, },
 							},
@@ -857,8 +775,6 @@ func startOrderer(serviceName string) error {
 
 		
 	// create a service
-	externalIPs, _ := getImmSrvExternalIPs()
-	
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: shortName,
@@ -879,9 +795,14 @@ func startOrderer(serviceName string) error {
 					},
 				},
 			},
-			Type: corev1.ServiceTypeLoadBalancer,
-			ExternalIPs: externalIPs,
 		},
+	}
+
+	config, _, err := immutil.ReadOrgConfig(org)
+	if err == nil && len(config.ExternalIPs) > 0 {
+		service.Spec.ExternalIPs = config.ExternalIPs
+	}else{
+		service.Spec.Type = corev1.ServiceTypeLoadBalancer
 	}
 
 	serviceClient, err := immutil.K8sGetServiceClient()
@@ -897,7 +818,9 @@ func startOrderer(serviceName string) error {
 	return nil
 }
 
-func createPeer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName string) error {
+func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
+	mspID := fabconf.MspIDPrefix + org
+	// netName := immutil.DockerNetPrefix + org
 	peerEnvMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: hostname+"-env",
@@ -968,14 +891,21 @@ func createPeer(hostname, mspID, tlsPrivFile, tlsCertFile, tlsCAFile, netName st
 	if err != nil {
 		return fmt.Errorf("failed to create a ConfigMap for couchDB environment variable: " + err.Error())
 	}
-	
-	return nil
+
+	err = createDinDKeys(org)
+	if err != nil {
+		return fmt.Errorf("failed to create keys for DinD: " + err.Error())
+	}
+
+	return nil // success
 }
 
 func startPeer(podName string) (state, resourceVersion string, retErr error) {
-	shortName := strings.SplitN(podName, ".", 2)[0]
+	tmpStrs := strings.SplitN(podName, ".", 2)
+	shortName := tmpStrs[0]
+	org := tmpStrs[1]
+	
 	podLabel := "app="+shortName
-
 	podState, resourceVersion, retErr := immutil.K8sGetPodState(podLabel, podName)
 	if retErr != nil {
 		return
@@ -1010,16 +940,30 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	couchDBEnv := []corev1.EnvFromSource{
 		{ ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{ Name: couchdbHostPrefix+podName+"-env",},},},
 	}
+
+	workVol, retErr := immutil.K8sGetOrgWorkVol(org)
+	if retErr != nil {
+		return
+	}
+
+	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
+	if err == nil {
+		pullRegAddr += "/"
+	}
 	
 	deployClient, retErr := immutil.K8sGetDeploymentClient()
 	if retErr != nil {
 		return
 	}
 
+	dindCmd := []string{"dockerd-entrypoint.sh"}
+	registryAddr, err := immutil.GetLocalRegistryAddr()
+	if err == nil {
+		dindCmd = append(dindCmd, "--insecure-registry", registryAddr)
+	}
+	
 	repn := int32(1)
 	privilegedF := bool(true)
-	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
-	pathTypeFile := corev1.HostPathType(corev1.HostPathFileOrCreate)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1042,27 +986,21 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					Volumes: []corev1.Volume{
 						{
 							Name: "vol1",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: immutil.ConfBaseDir+"/"+podName,
-									Type: &pathType,
-								},
-							},
-						},
-						{
-							Name: "file1",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: immutil.TmplDir+hostDockerImgTar,
-									Type: &pathTypeFile,
-								},
-							},
+							VolumeSource: *workVol,
 						},
 						{
 							Name: "secret-vol1",
 							VolumeSource: corev1.VolumeSource{
 								Secret: &corev1.SecretVolumeSource{
 									SecretName: podName,
+								},
+							},
+						},
+						{
+							Name: "dind-keys",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: immutil.DinDHostname + "." + org,
 								},
 							},
 						},
@@ -1077,10 +1015,10 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					Containers: []corev1.Container{
 						{
 							Name: shortName,
-							Image: immutil.PeerImg,
+							Image: pullRegAddr + immutil.PeerImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: peerDataDir, SubPath: hostDataDir, },
-								{ Name: "vol1", MountPath: contDockerCertDir, SubPath: hostDockerCertDir, },
+								{ Name: "vol1", MountPath: peerDataDir, SubPath: podName+hostDataDir, },
+								{ Name: "dind-keys", MountPath: contDockerCertDir, },
 								{ Name: "secret-vol1", MountPath: certsTarDir, },
 							},
 							EnvFrom: peerEnv,
@@ -1102,13 +1040,15 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						},
 						{
 							Name: "dind-chaincode",
-							Image: immutil.DockerImg,
+							Image: pullRegAddr + immutil.DockerImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: contDockerCertDir, SubPath: hostDockerCertDir, },
-								{ Name: "vol1", MountPath: contDockerVarDir, SubPath: hostDockerVarDir, },
-								{ Name: "file1", MountPath: contDockerImgTar, },
+								{ Name: "dind-keys", MountPath: contDockerCertDir, },
+								{ Name: "vol1", MountPath: contDockerVarDir, SubPath: podName+hostDockerVarDir, },
 							},
-							Command: []string{"sh", "-c", loadImgCmd},
+							Env: []corev1.EnvVar{
+								{ Name: "DOCKER_TLS_SAN", Value: "DNS:dind."+org, },
+							},
+							Command: dindCmd,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privilegedF,
 							},
@@ -1122,7 +1062,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						},
 						{
 							Name: couchdbHostPrefix+shortName,
-							Image: immutil.CouchDBImg,
+							Image: pullRegAddr + immutil.CouchDBImg,
 							EnvFrom: couchDBEnv,
 							Ports: []corev1.ContainerPort{
 								{
@@ -1145,8 +1085,6 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	}
 	
 	// create a service
-	externalIPs, _ := getImmSrvExternalIPs()
-	
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: shortName,
@@ -1173,9 +1111,14 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					},
 				},
 			},
-			Type: corev1.ServiceTypeLoadBalancer,
-			ExternalIPs: externalIPs,
 		},
+	}
+
+	config, _, err := immutil.ReadOrgConfig(org)
+	if err == nil && len(config.ExternalIPs) > 0 {
+		service.Spec.ExternalIPs = config.ExternalIPs
+	}else{
+		service.Spec.Type = corev1.ServiceTypeLoadBalancer
 	}
 
 	serviceClient, retErr := immutil.K8sGetServiceClient()
@@ -1220,7 +1163,7 @@ func createKeyPair() (priv, pub []byte, skiStr string, retErr error) {
 	return
 }
 
-func signPublicKey(pub []byte, pubSubj *pkix.Name, caKey, caCertPem []byte) ([]byte, error) {
+func signPublicKey(pub []byte, pubSubj *pkix.Name, caKey, caCertPem []byte, dnsNames []string) ([]byte, error) {
 	// decode public key
 	pubKeyData, _ := pem.Decode(pub)
 	if pubKeyData.Type != "PUBLIC KEY" {
@@ -1278,6 +1221,13 @@ func signPublicKey(pub []byte, pubSubj *pkix.Name, caKey, caCertPem []byte) ([]b
 		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageDataEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		Subject: *pubSubj,
+	}
+
+	if certTempl.Subject.CommonName != "" {
+		certTempl.DNSNames = append(certTempl.DNSNames, certTempl.Subject.CommonName)
+	}
+	if dnsNames != nil {
+		certTempl.DNSNames = append(certTempl.DNSNames, dnsNames...)
 	}
 
 	cert, err := x509.CreateCertificate(rand.Reader, certTempl, caCert, srcPubKey, caPrivKey)
@@ -2109,7 +2059,7 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 	go func() {
 		peerName := storageHost
 		peerState, ver, peerErr := startPeer(peerName)
-		signature, err := signer.waitSignatureCh()
+		signature, err := signer.waitSignatureCh() // wait SendSigedProp request
 		if err != nil {
 			return
 		}
@@ -2156,6 +2106,15 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 					return
 				}
 			}
+		}
+
+		tmpStrs := strings.SplitN(storageHost, ".", 2)
+		shortName := tmpStrs[0]
+		dindOrg := tmpStrs[1]
+		err = initDinD(shortName, dindOrg)
+		if err != nil {
+			signer.err <- err
+			return
 		}
 
 		conn, err := connectPeerWithName(peerName)
@@ -2587,7 +2546,7 @@ func (signer *signerState) eventHandler(eventCh chan error, chConf *channelConf,
 		Province: srvCert.Subject.Province,
 		CommonName: immutil.ImmsrvHostname + "." + srvCert.Subject.Organization[0],
 	}
-	privPem, certPem, _, err := immutil.GenerateKeyPair(tlsSubj)
+	privPem, certPem, _, err := immutil.GenerateKeyPair(tlsSubj, nil)
 	tlsCert, err := tls.X509KeyPair(certPem, privPem)
 	if err != nil {
 		return  err
@@ -3748,7 +3707,17 @@ func (s *server) QueryBlockByTxID(ctx context.Context, req *immop.QueryBlockByTx
 }
 
 func main() {
-	parentCert, err := readCertificateFile(parentCertPath)
+	cert, err := readCertificateFile(certPath)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	
+	caSecretName := immutil.CAHostname + "." + cert.Subject.Organization[0]
+	_, parentCertPem, err := immutil.K8sGetKeyPair(caSecretName)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	parentCert, _, err := immutil.ReadCertificate(parentCertPem)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -3766,7 +3735,6 @@ func main() {
 
 
 	// create a CA for TLS
-	cert, _ := readCertificateFile(certPath)
 	tlsSubj := &pkix.Name{
 		Country: cert.Subject.Country,
 		Organization: cert.Subject.Organization,
@@ -3774,15 +3742,16 @@ func main() {
 		Province: cert.Subject.Province,
 		CommonName: immutil.TlsCAHostname + "." + cert.Subject.Organization[0],
 	}
-	privFile, certFile, err := immutil.CreateSelfKeyPair(tlsSubj, workDir)
+	
+	_, err = immutil.K8sCreateSelfKeyPair(tlsSubj)
 	if err != nil {
 		log.Fatalf("failed to create keys for %s CA TLS\n", tlsSubj.CommonName)
 	}
 
 	immserver := &server{
 		parentCert: parentCert,
-		tlsCAPrivPath: workDir+"/"+privFile,
-		tlsCACertPath: workDir+"/"+certFile,
+		parentCertPem: parentCertPem,
+		org: cert.Subject.Organization[0], 
 		signer: make(map[string]*signerState),
 	}
 
