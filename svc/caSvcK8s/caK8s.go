@@ -14,21 +14,21 @@ import (
 )
 
 const (
-	caConfHostDir = "conf"
-	caDataHostDir = "data"
 	caConfDir = "/etc/hyperledger/fabric-ca-server-config"
 	caDataDir = "/etc/hyperledger/fabric-ca-server"
+	caCertFile = "ca.crt"
+	caPrivFile = "ca.key"
 )
 
 func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	subj := &config.Subj
 	// create a CA for transcation
-	keyDir := immutil.ConfBaseDir+ "/"+subj.CommonName+ "/"+caConfHostDir 
-	caPrivFile, caCertFile, err := immutil.CreateSelfKeyPair(subj, keyDir)
+	secretName, err := immutil.K8sCreateSelfKeyPair(subj)
 	if err != nil {
 		return fmt.Errorf("failed to create keys for %s transcation: %s", subj.CommonName, err)
 	}
 
+	org := subj.Organization[0]
 	caHostname := subj.CommonName
 	caCert := caConfDir + "/" + caCertFile
 	caPrv  := caConfDir + "/" + caPrivFile
@@ -40,19 +40,29 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 		{ Name: "FABRIC_CA_SERVER_TLS_CERTFILE", Value: caCert, },
 		{ Name: "FABRIC_CA_SERVER_TLS_KEYFILE", Value: caPrv, },
 	}
-	hostConfDir := immutil.ConfBaseDir + "/" + subj.CommonName
 	startCaCmd := "fabric-ca-server start"
 	startCaCmd += " --ca.certfile "+caCert + " --ca.keyfile "+caPrv
 	startCaCmd += " -b "+caAdminName+":"+caAdminPass + " -d --cfg.identities.allowremove"
 	startCaCmd += " --cfg.affiliations.allowremove"
 
+	workVol, err := immutil.K8sGetOrgWorkVol(org)
+	if err != nil {
+		return err
+	}
+
+	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
+	if err == nil {
+		pullRegAddr += "/"
+	}
+	
 	deployClient, err := immutil.K8sGetDeploymentClient()
 	if err != nil {
 		return err
 	}
 	
 	repn := int32(1)
-	pathType := corev1.HostPathType(corev1.HostPathDirectoryOrCreate)
+	privMode := int32(0400)
+	certMode := int32(0444)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: caHostname,
@@ -73,11 +83,18 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 				Spec: corev1.PodSpec{
 					Volumes: []corev1.Volume{
 						{
-							Name: "vol1",
+							Name: "work-vol",
+							VolumeSource: *workVol,
+						},
+						{
+							Name: "keys-vol1",
 							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: hostConfDir,
-									Type: &pathType,
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: secretName,
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: caPrivFile, Mode: &privMode },
+										{ Key: "cert", Path: caCertFile, Mode: &certMode },
+									},
 								},
 							},
 						},
@@ -87,10 +104,10 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 					Containers: []corev1.Container{
 						{
 							Name: immutil.CAHostname,
-							Image: immutil.CaImg,
+							Image: pullRegAddr + immutil.CaImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: caDataDir, SubPath: "data", },
-								{ Name: "vol1", MountPath: caConfDir, SubPath: "conf", },
+								{ Name: "work-vol", MountPath: caDataDir, SubPath: caHostname+"/data", },
+								{ Name: "keys-vol1", MountPath: caConfDir, },
 							},
 							Env: caEnv,
 							Command: []string{"sh", "-c", startCaCmd},
@@ -133,10 +150,14 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 					},
 				},
 			},
-			Type: corev1.ServiceTypeLoadBalancer,
-			ExternalIPs: config.ExternalIPs,
 		},
 	}
+	if len(config.ExternalIPs) > 0 {
+		service.Spec.ExternalIPs = config.ExternalIPs
+	}else{
+		service.Spec.Type = corev1.ServiceTypeLoadBalancer
+	}
+
 	serviceClient, err := immutil.K8sGetServiceClient()
 	if err != nil {
 		return err
