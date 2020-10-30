@@ -306,25 +306,28 @@ func sendReqCA(req *http.Request) (result interface{}, retErr error){
 //	client := &http.Client{Transport: tr}
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if (err != nil) || resp.Body == nil {
-		retErr = errors.New("failed to request: " + err.Error())
+	if err != nil {
+		retErr = fmt.Errorf("failed to request: " + err.Error())
 		return
 	}
-	var respBody []byte
-	respBody, err = ioutil.ReadAll(resp.Body)
+	if resp.Body == nil {
+		retErr = fmt.Errorf("responded body is nil")
+		return
+	}
 	defer func() {
 		err := resp.Body.Close()
 		if err != nil {
 			print("log: failed to close the body: " + err.Error() + "\n")
 		}
 	}()
+
+	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		retErr = errors.New("could not read the body: " + err.Error())
 		return
 	}
 
 	//	fmt.Printf("body: \n%s\n", hex.Dump(respBody))
-        
 	body := &Response{}
 	err = json.Unmarshal(respBody, body)
 	if err != nil {
