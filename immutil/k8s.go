@@ -20,6 +20,8 @@ import (
 	"io"
 	"strings"
 	"bufio"
+
+	"crypto/x509/pkix"
 )
 
 const (
@@ -30,15 +32,19 @@ const (
 	NotExist = "NotExist"
 )
 
+func IsInKube() bool {
+	tokenStat, err  := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	isInKubeF := err == nil && !tokenStat.IsDir() &&
+		os.Getenv("KUBERNETES_SERVICE_HOST") != "" &&
+		os.Getenv("KUBERNETES_SERVICE_PORT") != ""
+	return isInKubeF
+}
+
 func createClientSet() (*kubernetes.Clientset, error) {
 	var config *rest.Config
 	var err error
 
-	tokenStat,err  := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	isInKubeF := err == nil && !tokenStat.IsDir() &&
-		os.Getenv("KUBERNETES_SERVICE_HOST") != "" &&
-		os.Getenv("KUBERNETES_SERVICE_PORT") != ""
-	
+	isInKubeF := IsInKube()
 	if isInKubeF {
 		// inside kubernetes
 		config, err = rest.InClusterConfig()
@@ -104,6 +110,21 @@ func K8sDeleteService(serviceName string) error {
 	}
 
 	return nil
+}
+
+func K8sGetRegistryService() (service *corev1.Service, retErr error) {
+	clientset, retErr := createClientSet()
+	if retErr != nil {
+		return
+	}
+
+	cli := clientset.CoreV1().Services("container-registry")
+	service, err := cli.Get(context.TODO(), "registry", metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found registry service")
+		return
+	}
+	return // success
 }
 
 func K8sDeleteDeploy(deploymentName string) error {
@@ -199,8 +220,9 @@ func k8sGetKeysFromSecret(secretName string, keyPEMs map[string] *[]byte) (retEr
 		return
 	}
 	
-	secret, retErr := secretsClient.Get(context.TODO(), secretName, metav1.GetOptions{})
-	if retErr != nil {
+	secret, err := secretsClient.Get(context.TODO(), secretName, metav1.GetOptions{})
+	if err != nil || secret.Data == nil {
+		retErr = fmt.Errorf("not found key: %s", err)
 		return
 	}
 
@@ -256,6 +278,97 @@ func k8sGetKeysFromSecret(secretName string, keyPEMs map[string] *[]byte) (retEr
 	}
 
 	retErr = fmt.Errorf("Unexpected secret")
+	return
+}
+
+func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
+	secretName = subj.CommonName
+	
+	secretsClient, retErr := K8sGetSecretsClient()
+	if retErr != nil {
+		return
+	}
+
+	secret, retErr := secretsClient.Get(context.TODO(), secretName, metav1.GetOptions{})
+	if retErr == nil {
+		// This secret already exists.
+		// check key-pair
+		for {
+			privPem, ok := secret.Data["key"]
+			if !ok {
+				break // recreate keys
+			}
+			pubPem, ok := secret.Data["cert"]
+			if !ok {
+				break // recreate keys
+			}
+			err := CheckKeyPair(privPem, pubPem)
+			if err != nil {
+				break
+			}
+			
+			return // success
+		}
+
+		deletePolicy := metav1.DeletePropagationForeground
+		err := secretsClient.Delete(context.TODO(), secretName, metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,})
+		if err != nil {
+			retErr = err
+			return
+		}
+	}
+
+	// create key pair on a secret
+	privPem, pubPem, _, err := GenerateKeyPair(subj, nil)
+	if err != nil {
+		retErr = err
+		return
+	}
+	
+	secretKeys := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+				Name:secretName,
+		},
+		Data: map[string][]byte{
+			"key": privPem,
+			"cert": pubPem,
+		},	
+	}
+	
+	_, retErr = secretsClient.Create(context.TODO(), secretKeys, metav1.CreateOptions{})
+	return
+}
+
+func K8sGetKeyPair(secretName string) (privPem, certPem []byte, retErr error) {
+	cli, retErr := K8sGetSecretsClient()
+	if retErr != nil {
+		return
+	}
+
+	secret, err := cli.Get(context.TODO(), secretName, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found secret: %s", err)
+		return
+	}
+
+	if secret.Data == nil {
+		retErr = fmt.Errorf("unexpected secret (name=%s)", secretName)
+		return
+	}
+
+	certPem, ok := secret.Data["cert"]
+	if !ok {
+		retErr = fmt.Errorf("unexpected secret data (name=%s)",  secretName)
+		return
+	}
+
+	privPem, ok = secret.Data["key"]
+	if !ok {
+		retErr = fmt.Errorf("unexpected secret key data (name=%s)", secretName)
+		return
+	}
+
 	return
 }
 
@@ -495,4 +608,194 @@ func K8sGetPodState(label, containPodName string) (retState, resourceVersion  st
 
 	retState = NotExist
 	return
+}
+
+func k8sReadOrgConfig(org string) (config *ImmConfig, retErr error) {
+	configYaml, retErr := k8sReadConfig(org, "config")
+	if retErr != nil {
+		return
+	}
+	
+	config, retErr = convertYamlToStruct(org, []byte(configYaml))
+	return
+}
+
+func k8sReadConfig(configName, key string) (config string, retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap, err := cli.Get(context.TODO(), configName, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to get a ConfigMap: %s", err)
+		return
+	}
+
+	if configMap.Data == nil {
+		retErr = fmt.Errorf("unexpected ConfigMap")
+		return
+	}
+	
+	config, ok := configMap.Data[key]
+	if !ok {
+		retErr = fmt.Errorf("not found data (key=%s)", key)
+		return
+	}
+
+	return
+}
+
+func k8sGenerateOrgConfig(org string) (config *ImmConfig, retErr error) {
+	if org == "" {
+		org = os.Getenv("IMMS_ORG")
+		if org == "" {
+			retErr = fmt.Errorf("The specified organaization is empty")
+			return
+		}
+	}
+	
+	config, err := k8sReadOrgConfig(org)
+	if err == nil {
+		retErr = err
+		return
+	}
+	
+	configItems := map[string] []string{
+		"country": { os.Getenv("IMMS_CERT_COUNTRY"), defaultCertCountry },
+		"locality": { os.Getenv("MMS_CERT_LOCALITY"), defaultCertLocality },
+		"province": { os.Getenv("IMMS_CERT_PROVINCE"), defaultCertProvince },
+		"ExternalIPs": { os.Getenv("IMMS_EXTERNAL_IP"), ""},
+		"Registry": { os.Getenv("IMMS_REGISTRY"), ""},
+	}
+
+	configYaml := ""
+	for itemName, item := range configItems {
+		configYaml += itemName + ": "
+		if item[0] == "" {
+			configYaml += item[1] + "\n" // set default string
+			continue
+		}
+		configYaml += item[0] + "\n" // set enviriment variable
+	}
+
+	config, retErr = convertYamlToStruct(org, []byte(configYaml))
+	if retErr != nil {
+		return
+	}
+
+	workVolData, retErr := K8sGetMyVolume()
+	if retErr != nil {
+		return
+	}
+	
+	retErr = k8sWriteOrgConfig(org, configYaml, workVolData)
+	return
+}
+
+func k8sWriteOrgConfig(org, configYaml string, workVolData []byte) (retErr error) {
+	return	k8sWriteConfig(org, "config", "org", configYaml, workVolData)
+}
+
+func k8sWriteConfig(name, fileName, configType, configData string, workVolData []byte) (retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string] string {
+				"config": configType,
+			},
+		},
+		Data: map[string]string{
+			fileName: configData,
+		},
+	}
+
+	if workVolData != nil {
+		configMap.BinaryData = make(map[string][]byte)
+		configMap.BinaryData[workVolume] = workVolData
+	}
+	
+	_, err := cli.Create(context.TODO(), configMap, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a ConfigMap for %s: %s", name, err.Error())
+		return
+	}
+	
+	return
+}
+
+func K8sReadEnvoyConfig(name string) (string, error) {
+	return k8sReadConfig(name, "envoy.yaml")
+}
+
+func K8sWriteEnvoyConfig(name, configYaml string) error {
+	return k8sWriteConfig(name, "envoy.yaml", "envoy", configYaml, nil)
+}
+
+func K8sGetMyVolume() (volData []byte, retErr error) {
+	cli, retErr := K8sGetPodClient()
+	if retErr != nil {
+		return
+	}
+
+	hostname := os.Getenv("HOSTNAME")
+	pod, err := cli.Get(context.TODO(), hostname, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found my pod")
+		return 
+	}
+
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Name != workVolume {
+			continue
+		}
+
+		volData, err = volume.VolumeSource.Marshal()
+		if err != nil {
+			retErr = fmt.Errorf("unexpected volume: %s", err)
+			return
+		}
+		return // success 
+	}
+
+	retErr = fmt.Errorf("not found working volume")
+	return
+}
+
+func K8sGetOrgWorkVol(org string) (vol *corev1.VolumeSource, retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap, err := cli.Get(context.TODO(), org, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to get a ConfigMap for volume: %s", err)
+		return
+	}
+
+	if configMap.BinaryData == nil {
+		retErr = fmt.Errorf("unexpected ConfigMap")
+		return
+	}
+
+	volData, ok := configMap.BinaryData[workVolume]
+	if !ok {
+		retErr = fmt.Errorf("not found volume")
+		return
+	}
+
+	vol = &corev1.VolumeSource{}
+	err = vol.Unmarshal(volData)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected volume data: %d", err)
+		return
+	}
+
+	return // success
 }
