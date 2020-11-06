@@ -4,7 +4,7 @@ MAINTAINER eiichiro.oiwa.nm@hitachi.com
 RUN mkdir -p /var/lib/ImmutableST/bin
 COPY ./tmpl /var/lib/ImmutableST/tmpl
 WORKDIR /var/lib/ImmutableST/bin
-COPY svc/caSvcK8s/caSvc svc/httpSvcK8s/httpSvc svc/immSvcK8s/immSvc svc/preloadImg/preloadImg ./
+COPY svc/immsSvc ./
 COPY script/imms.sh ./
 
 RUN mkdir -p /var/lib/ImmutableST/tmpl/httpd/html
