@@ -18,4 +18,8 @@ COPY ./chaincode/hlRsyslog.tar.gz ./hlRsyslog
 
 RUN mkdir -p /var/lib/ImmutableST/org
 
-CMD ["imms.sh start"]
+RUN apt-get update && apt-get install -y cpio  \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/var/lib/ImmutableST/bin/imms.sh", "start"]
+WORKDIR /var/lib/ImmutableST/bin
