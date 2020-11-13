@@ -70,7 +70,7 @@ func GetPullRegistryAddr(org string) (addr string, retErr error) {
 			return "", err
 		}
 		
-		if config.Registry != localRegAddr {
+		if config.Registry != "" && config.Registry != localRegAddr {
 			return config.Registry, nil
 		}
 	}
