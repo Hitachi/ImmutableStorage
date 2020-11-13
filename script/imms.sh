@@ -2,7 +2,9 @@
 set -e
 BIN_PATH=/var/lib/ImmutableST/bin
 
-$BIN_PATH/immsSvc preloadImg
+if [ "$1" == "start" ]; then
+    $BIN_PATH/immsSvc preloadImg
+fi
 
 $BIN_PATH/immsSvc caSvc $@
 $BIN_PATH/immsSvc httpSvc $@
