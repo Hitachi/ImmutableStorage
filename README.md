@@ -66,7 +66,7 @@ If you want to set an organization name to example.com, a value in the imms-exam
       value: example.com
 ```
 
-Immutable Storage service needs a containerd socket in order to pull docker images. You need to set this socket path in the imms-example.yaml file. On microk8s, containerd socket path is /var/snap/microk8s/common/run/containerd.sock:
+Immutable Storage service pulls docker images using the containerd socket. The service uses a configuration file imms-example.yaml for specifying the path to this socket. On microk8s, for example, containerd socket path is /var/snap/microk8s/common/run/containerd.sock and imms-example.yaml looks like this:
 ```yaml
  - name: containerd-sock
     hostPath:
@@ -74,7 +74,7 @@ Immutable Storage service needs a containerd socket in order to pull docker imag
 ```
 
 ### 3. Create resouces for Immutable Storage service
-Immutable Storage server resource can be created with the following command as root or through sudo.
+Immutable Storage service resource can be created with the following command.
 
 ```sh
 kubectl create -f imms-example.yaml
@@ -82,6 +82,33 @@ kubectl create -f imms-example.yaml
 
 ### 4. Create Immutable Storage
 #### 4.1. Enroll CA administrator
+You can get an initial administrator secret to enroll CA administrator with the following command.
+
+```
+kubectl logs imms
+```
+
+This command will print the secret looks like:
+```
+Initial administrator secret: WNB57zcz
+```
+
+You can get an IP to access Immutable Storage service.
+```
+kubectl svc
+```
+
+This command will print an IP for "www" service in "EXTERNAL-IP". The IP is 10.64.140.44 in this case.
+
+```
+NAME         TYPE           CLUSTER-IP       EXTERNAL-IP    PORT(S)          AGE
+ca           LoadBalancer   10.152.183.132   10.64.140.43   7054:31623/TCP   3m29s
+envoy        LoadBalancer   10.152.183.247   10.64.140.45   8080:31144/TCP   3m28s
+kubernetes   ClusterIP      10.152.183.1     <none>         443/TCP          7d
+www          LoadBalancer   10.152.183.104   10.64.140.44   443:30126/TCP    3m28s
+```
+
+You can enter a username and secret with Web-browser and then click "Enroll user" to enroll CA administrator. In this case, a username is "admin" and secret is "WNB57zcz".
 ![Enroll CA admin](./doc/img/enrollAdmin.jpg)
 
 
