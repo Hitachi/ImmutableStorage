@@ -22,7 +22,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
     "context"
-	
+
+	"strings"
+	"os/exec"
 	"crypto/x509/pkix"
 	"fmt"
 
@@ -194,4 +196,31 @@ func stopCA(subj *pkix.Name) error {
 	}
 
 	return immutil.K8sDeleteDeploy(subj.CommonName)
+}
+
+func getCAPass(org string) (secret string, retErr error) {
+	configFile := immutil.VolBaseDir+"/"+immutil.CAHostname+"."+org+"/data/fabric-ca-server-config.yaml"
+	getPassCmd := "grep pass: " + configFile + ` | awk '{print $2;}'`
+	cmd := exec.Command("/bin/sh", "-c", getPassCmd)
+	cmdStdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create a pipe: %s", err)
+	}
+	
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("could not get a secret: %s", err)
+	}
+
+	passBuf := make([]byte, 256)
+	len, err := cmdStdout.Read(passBuf)
+	if err != nil {
+		return "", fmt.Errorf("failed to read a secret in a configuration file: %s", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("failed to execute commands: %s", err)
+	}
+
+	passBuf = passBuf[:len]
+	return strings.TrimSuffix(string(passBuf), "\n"), nil
 }

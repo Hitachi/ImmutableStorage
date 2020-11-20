@@ -79,6 +79,12 @@ func caSvc(cmd, org string) error {
 		if err != nil {
 			return fmt.Errorf("could not stop %s: %s\n", config.Subj.CommonName, err)
 		}
+	case "getPass":
+		secret, err := getCAPass(org)
+		if err != nil {
+			return fmt.Errorf("failed to get initial secret: %s", err)
+		}
+		fmt.Printf("Initial administrator secret: %s\n", secret)
 	default:
 		return fmt.Errorf("unknown command: %s\n", cmd)
 	}
