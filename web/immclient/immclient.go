@@ -843,7 +843,7 @@ func (id *UserID) RemoveServiceFromCh(hostName, portName, url string) (err error
 	}
 
 	req := &immop.RemoveServiceRequest{Peer: &immop.ServiceSummary{Hostname: hostName, Port: portName}, CAToken: token, }
-	req.Cred, err = id.signMsg("RemoveSeviceFromCh", req)
+	req.Cred, err = id.signMsg("RemoveServiceFromCh", req)
 	if err != nil {
 		return
 	}
