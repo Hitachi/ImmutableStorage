@@ -88,7 +88,6 @@ const (
 	hostKeyDir = "key"
 	hostConfDir = "conf"
 	hostDataDir = "/data"
-	hostDockerCertDir = "/docker-certs"
 	contDockerCertDir = "/certs"
 	hostDockerVarDir = "/docker-var"
 	contDockerVarDir = "/var/lib/docker"
@@ -1013,10 +1012,26 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							},
 						},
 						{
-							Name: "dind-keys",
+							Name: "dind-keys-ca",
 							VolumeSource: corev1.VolumeSource{
 								Secret: &corev1.SecretVolumeSource{
-									SecretName: immutil.DinDHostname + "." + org,
+									SecretName: immutil.DinDHostname + "." + org +"-ca",
+								},
+							},
+						},
+						{
+							Name: "dind-keys-server",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: immutil.DinDHostname + "." + org +"-server",
+								},
+							},
+						},
+						{
+							Name: "dind-keys-client",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: immutil.DinDHostname + "." + org +"-client",
 								},
 							},
 						},
@@ -1034,7 +1049,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							Image: pullRegAddr + immutil.PeerImg,
 							VolumeMounts: []corev1.VolumeMount{
 								{ Name: "vol1", MountPath: peerDataDir, SubPath: podName+hostDataDir, },
-								{ Name: "dind-keys", MountPath: contDockerCertDir, },
+								{ Name: "dind-keys-client", MountPath: contDockerCertDir+"/client", },
 								{ Name: "secret-vol1", MountPath: certsTarDir, },
 							},
 							EnvFrom: peerEnv,
@@ -1058,12 +1073,14 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							Name: "dind-chaincode",
 							Image: pullRegAddr + immutil.DockerImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "dind-keys", MountPath: contDockerCertDir, },
+								{ Name: "dind-keys-ca", MountPath: contDockerCertDir+"/ca", },
+								{ Name: "dind-keys-server", MountPath: contDockerCertDir+"/server", },
+								{ Name: "dind-keys-client", MountPath: contDockerCertDir+"/client", },
 								{ Name: "vol1", MountPath: contDockerVarDir, SubPath: podName+hostDockerVarDir, },
 							},
-							Env: []corev1.EnvVar{
-								{ Name: "DOCKER_TLS_SAN", Value: "DNS:dind."+org, },
-							},
+							//Env: []corev1.EnvVar{
+							//	{ Name: "DOCKER_TLS_SAN", Value: "DNS:dind."+org, },
+							//},
 							Command: dindCmd,
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &privilegedF,
@@ -2073,66 +2090,18 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 	reply.TaskID = signer.taskID
 
 	go func() {
+		var signature []byte
 		peerName := storageHost
-		peerState, ver, peerErr := startPeer(peerName)
-		signature, err := signer.waitSignatureCh() // wait SendSigedProp request
+		signer, signature, err = s.waitPeerReady(signer, peerName)
 		if err != nil {
 			return
 		}
-		if peerErr != nil {
-			signer.err <- peerErr
-			return
-		}
-
-		if peerState == immutil.NotReady {
-			for retryC := 1; ; retryC++ {
-				label := "app=" + strings.SplitN(peerName, ".", 2)[0]
-				err = immutil.K8sWaitPodReady(ver, label, peerName)
-				if err == nil {
-					break
-				}
-
-				if err.Error() != immutil.NotReady {
-					signer.err <- err
-					return
-				}
-
-				prevSigner := signer
-				signer, err = s.setSignatureCh("JoinChannel:Retry"+strconv.Itoa(retryC), cert, grpHost)
-				if err != nil {
-					prevSigner.err <- err
-					return
-				}
-
-				retryRsp := &immop.Reply{
-					NotReadyF: true,
-					TaskID: signer.taskID,
-				}
-				prevSigner.rsp, err = proto.Marshal(retryRsp)
-				if err != nil {
-					signer.signatureChDone()
-					prevSigner.err <- fmt.Errorf("failed to marshal a reply")
-					return
-				}
-
-				prevSigner.err <- nil
-
-				_, err = signer.waitSignatureCh()
-				if err != nil {
-					return
-				}
-			}
-		}
-
-		tmpStrs := strings.SplitN(storageHost, ".", 2)
-		shortName := tmpStrs[0]
-		dindOrg := tmpStrs[1]
-		err = initDinD(shortName, dindOrg)
+		
+		signer, err = s.waitDindReady(signer, storageHost)
 		if err != nil {
-			signer.err <- err
 			return
 		}
-
+		
 		conn, err := connectPeerWithName(peerName)
 		if err != nil {
 			signer.err <- fmt.Errorf("could not connect to peer: %s", err)
@@ -2171,12 +2140,121 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 
 		writeChannelConf(storageHost, chConf)
 
-		fmt.Printf("Successfully submitted proposal to join channel")
+		fmt.Printf("Successfully submitted proposal to join channel\n")
 		signer.err <- nil
 		return
 	}()
 
 	return
+}
+
+func (s *server) waitPeerReady(signer *signerState, peerName string) (retSigner *signerState, signature []byte, retErr error) {
+	peerState, ver, peerErr := startPeer(peerName)
+	signature, err := signer.waitSignatureCh() // wait SendSignedProp request
+	if err != nil {
+		return nil, nil, err
+	}
+	if peerErr != nil {
+		signer.err <- peerErr
+		return nil, nil, peerErr
+	}
+	
+	if peerState != immutil.NotReady {
+		return signer, signature, nil
+	}
+
+	// not ready
+	for retryC := 1; ; retryC++ {
+		label := "app=" + strings.SplitN(peerName, ".", 2)[0]
+		err = immutil.K8sWaitPodReady(ver, label, peerName)
+		if err == nil {
+			break// success
+		}
+		
+		if err.Error() != immutil.NotReady {
+			signer.err <- err
+			return nil, nil, err
+		}
+		
+		prevSigner := signer
+		signer, err = s.setSignatureCh("RetryWaitPeerState_"+strconv.Itoa(retryC), signer.cert, signer.grpHost)
+		if err != nil {
+			prevSigner.err <- err
+			return nil, nil, err
+		}
+		
+		retryRsp := &immop.Reply{
+			NotReadyF: true,
+			TaskID: signer.taskID,
+		}
+		prevSigner.rsp, err = proto.Marshal(retryRsp)
+		if err != nil {
+			signer.signatureChDone()
+			err = fmt.Errorf("failed to marshal a reply: %s", err)
+			prevSigner.err <- err
+			return nil, nil, err
+		}
+		
+		prevSigner.err <- nil
+		_, err = signer.waitSignatureCh()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return signer, signature, nil // success
+}
+
+func (s *server) waitDindReady(signer *signerState, storageHost string) (retSigner *signerState, retErr error) {
+	var dindErr chan error
+	dindErr = make(chan error, 1)
+	
+	go func() {
+		tmpStrs := strings.SplitN(storageHost, ".", 2)
+		shortName := tmpStrs[0]
+		dindOrg := tmpStrs[1]
+		err := initDinD(shortName, dindOrg)
+		dindErr <- err
+	}()
+	defer close(dindErr)
+
+	for retryC := 1; ; retryC++ {
+		select {
+		case retErr =<- dindErr:
+			retSigner = signer
+			return // done
+		case <- time.After(10 * time.Second):
+			prevSigner := signer
+			signer, retErr = s.setSignatureCh("RetryWaitDinDState_"+strconv.Itoa(retryC), signer.cert, signer.grpHost)
+			if retErr != nil {
+				prevSigner.err <- retErr
+				<- dindErr
+				return // give up
+			}
+			
+			retryRsp := &immop.Reply{
+				NotReadyF: true,
+				TaskID: signer.taskID,
+			}
+			prevSigner.rsp, retErr = proto.Marshal(retryRsp)
+			if retErr != nil {
+				signer.signatureChDone()
+				retErr = fmt.Errorf("failed to marshal a reply with retry: %s", retErr)
+				prevSigner.err <- retErr
+				<- dindErr
+				return // give up
+			}
+			
+			prevSigner.err <- nil
+			_, retErr = signer.waitSignatureCh()
+			if retErr != nil {
+				<- dindErr
+				return // give up
+			}
+		}
+	}
+
+	return // dummy
 }
 
 func getConfigFromBlock(blockRaw []byte) (chConf *channelConf, retErr error) {
