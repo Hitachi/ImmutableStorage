@@ -32,6 +32,7 @@ import (
 	"crypto/tls"
 
 	"os"
+	"io"
 	"context"
 	"strings"
 	
@@ -94,25 +95,25 @@ func initDockerClient(org string) (retErr error) {
 	if retErr != nil {
 		return
 	}
-	secret, err :=  secretCli.Get(context.TODO(), immutil.DinDHostname + "." + org, metav1.GetOptions{})
+	secret, err :=  secretCli.Get(context.TODO(), immutil.DinDHostname+"."+org+"-client", metav1.GetOptions{})
 	if err != nil || secret.Data == nil {
 		retErr = fmt.Errorf("not found key: %s", err)
 		return
 	}
 	
-	caCertRaw, ok := secret.Data["server/ca.pem"]
+	caCertRaw, ok := secret.Data["ca.pem"]
 	if !ok {
-		retErr = fmt.Errorf("not found server/ca.pem")
+		retErr = fmt.Errorf("not found ca.pem")
 		return
 	}
-	certRaw, ok := secret.Data["server/cert.pem"]
+	certRaw, ok := secret.Data["cert.pem"]
 	if !ok {
-		retErr = fmt.Errorf("not found server/cert.pem")
+		retErr = fmt.Errorf("not found cert.pem")
 		return
 	}
-	keyRaw, ok := secret.Data["server/key.pem"]
+	keyRaw, ok := secret.Data["key.pem"]
 	if !ok {
-		retErr = fmt.Errorf("not found server/key.pem")
+		retErr = fmt.Errorf("not found key.pem")
 		return
 	}
 
@@ -215,13 +216,29 @@ func initDockerClient(org string) (retErr error) {
 			}
 
 			// pull and tag image
-			_, err = dockerClient.ImagePull(context.Background(), registryAddr+"/"+ref, types.ImagePullOptions{})
+			rsp, err := dockerClient.ImagePull(context.Background(), registryAddr+"/"+ref, types.ImagePullOptions{})
 			if err != nil {
 				retErr = fmt.Errorf("failed to pull %s: %s\n", ref, err)
 				return
 			}
+
+			buf := make([]byte, 256)
+			for {
+				len, err := rsp.Read(buf)
+				if len != 0 {
+					fmt.Printf("%s", string(buf))
+				}
 				
-			err = dockerClient.ImageTag(context.Background(), ref, registryAddr+"/"+ref)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					retErr = fmt.Errorf("failed in pulling %s: %s\n", ref, err)
+					return
+				}
+			}
+				
+			err = dockerClient.ImageTag(context.Background(), registryAddr+"/"+ref, ref)
 			if err != nil {
 				retErr = fmt.Errorf("failed to tag %s: %s\n", ref, err)
 				return
@@ -231,7 +248,7 @@ func initDockerClient(org string) (retErr error) {
 			if ref != immutil.ChainCcenvImg {
 				continue
 			}
-			err = dockerClient.ImageTag(context.Background(), ccenvLatest, registryAddr+"/"+ref)
+			err = dockerClient.ImageTag(context.Background(), registryAddr+"/"+ref, ccenvLatest)
 			findImgList[ccenvLatest] = true
 		}
 	}
@@ -286,18 +303,34 @@ func createDinDKeys(org string) (retErr error) {
 		return fmt.Errorf("failed to crate a certificate for docker client: %s", err)
 	}
 
-	secretKeys := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: immutil.DinDHostname + "." + org,
+	secretKeySet := []*corev1.Secret{
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: immutil.DinDHostname + "." + org + "-ca",
+			},
+			Data: map[string][]byte{
+				"cert.pem": tlsCACertPem,
+			},
 		},
-		Data: map[string][]byte{
-			"ca/cert.pem": tlsCACertPem,
-			"server/ca.pem": tlsCACertPem,
-			"server/key.pem": tlsPriv,
-			"server/cert.pem": tlsCert,
-			"client/ca.pem": tlsCACertPem,
-			"client/key.pem": cliPriv,
-			"client/cert.pem": cliCert,
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: immutil.DinDHostname + "." + org + "-server",
+			},
+			Data: map[string][]byte{
+				"ca.pem": tlsCACertPem,
+				"key.pem": tlsPriv,
+				"cert.pem": tlsCert,
+			},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: immutil.DinDHostname + "." + org + "-client",
+			},			
+			Data: map[string][]byte{
+				"ca.pem": tlsCACertPem,
+				"key.pem": cliPriv,
+				"cert.pem": cliCert,
+			},
 		},
 	}
 
@@ -306,9 +339,11 @@ func createDinDKeys(org string) (retErr error) {
 		return err
 	}
 
-	_, err = secretsCli.Create(context.TODO(), secretKeys, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create a secret for dind keys: %s", err)
+	for _, secretKeys := range secretKeySet {
+		_, err = secretsCli.Create(context.TODO(), secretKeys, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create a secret for dind keys: %s", err)
+		}
 	}
 	
 	return nil	
