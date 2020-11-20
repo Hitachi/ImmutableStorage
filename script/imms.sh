@@ -9,3 +9,7 @@ fi
 $BIN_PATH/immsSvc caSvc $@
 $BIN_PATH/immsSvc httpSvc $@
 $BIN_PATH/immsSvc immSvc $@
+
+if [ "$1" == "start" ]; then
+    $BIN_PATH/immsSvc caSvc getPass
+fi
