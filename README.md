@@ -174,7 +174,7 @@ You can import some Immutable Storage services to create an Immutable Storage Gr
 2. Click the __Import__ button.
 3. Select the ".dat" file that was saved in Section 4.2.3, "Exporting Immutable Storage Service".
 
-![Import Immutable Storage Group](./doc/img/importStrSvc.jpg)
+![Import Immutable Storage Service](./doc/img/importStrSvc.jpg)
 
 4. Click the __Export__ button.
 5. Click the __Save File__ button in opening file dialog.
