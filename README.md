@@ -34,15 +34,14 @@ Your Linux native application can add Immutable Storage functions from a library
 3. Syslog client
 Your syslog client will get Immutable Storage functions without adding codes if you edit a configuration file for rsyslogd.
 
-## Install
-## Install Immutable Storage service
+## Install Immutable Storage Service
 ### What you'll need
 - Kubernetes such as microk8s
 - containerd for image registry
 - An Internet connection
 
-### 1. Install a container to your registry
-Immutable Storage server can be installed to your registry with the following command as root or through sudo.
+### 1. Installing an Docker Image to Your Registry
+The Immutable Storage Docker image can be installed to your registry with the following command as root or through sudo.
 
 ```sh
 ctr i import ImmutableStorage-1.0.0.tar  --base-name imms
@@ -51,7 +50,7 @@ ctr i push REGISTRY/imms:1.0.0 imms:1.0.0
 
 REGISTRY is your registry. For example, local registry is "localhost:32000" on microk8s. ctr command may be replaced by microk8s.ctr on microk8s.
 
-### 2. Configure resources for Immutable Storage service
+### 2. Configuring Resources for Immutable Storage Service
 To configure resources for Immutable Storage service, you need to edit some lines in the imms-example.yaml file.
 
 If, for example, your registry is localhost:32000, the line defined image is the following:
@@ -73,15 +72,15 @@ Immutable Storage service pulls docker images using the containerd socket. The s
       path: /var/snap/microk8s/common/run/containerd.sock
 ```
 
-### 3. Create resouces for Immutable Storage service
-Immutable Storage service resource can be created with the following command.
+### 3. Creating Resouces for Immutable Storage Service
+Resources for Immutable Storage service can be created with the following command.
 
 ```sh
 kubectl create -f imms-example.yaml
 ```
 
-### 4. Create Immutable Storage
-#### 4.1. Enroll CA administrator
+### 4. Creating an Immutable Storage Service
+#### 4.1. Enrolling a CA Administrator
 You can get an initial administrator secret to enroll CA administrator with the following command.
 
 ```
@@ -109,12 +108,106 @@ www          LoadBalancer   10.152.183.104   10.64.140.44   443:30126/TCP    3m2
 ```
 
 You can enter a username and secret with Web-browser and then click "Enroll user" to enroll CA administrator. In this case, a username is "admin" and secret is "WNB57zcz".
-![Enroll CA admin](./doc/img/enrollAdmin.jpg)
+![Enrolling a CA admin](./doc/img/enrollAdmin.jpg)
 
+#### 4.2. Creating an Immutable Storage Service
+You can enroll an administor to create an Immutable Storage service.
+
+##### 4.2.1. Registering an Administrator for Immutable Storage service
+You can add an administrator for Immutable Storage service as CA administrator.
+1. Select the __Register__ tab.
+2. Select the __Storage service administrator__ from the __User type__ drop-down list.
+3. Type the name you want to use as administrator in the __User name__ text box.
+4. Click the __Register__ button.
+
+After clicking the __Register__, it will fill the secret in the __Secret__ text box.
+
+![Registering Immutable Storage service](./doc/img/registerStrSvc.jpg)
+
+##### 4.2.2. Enrolling an Administrator for Immutable Storage Service
+You can enroll an administrator for Immutable Storage service.
+1. Select the __Enroll__ tab.
+2. Type the name for Immutable Storage service in the __Username__ text box.
+3. Type the secret, which was printed in the __Register Secret__ text box, in the __Secret__ text box.
+4. Click the __Enroll__ button.
+
+![Enrolling an Administrator for Immutable Storage service](./doc/img/enrollStorage.jpg)
+
+##### 4.2.3. Exporting an Immutable Storage Service
+You can export an Immutable Storage service to join an Immutable Storage group.
+1. Select the __Storage Service__ tab.
+2. Click the __Export__ button.
+3. On Mozilla Firefox, click the __Save File__ button in opening file dialog.
+
+![Export Storage](./doc/img/exportStorage.jpg)
+
+#### 4.3. Creating an Immutable Storage Group
+You can create an Immutable Storage group as CA administrator.
+1. Select the __Switch User__ tab.
+2. Click the __admin__ radio button in the __Select a user__ list to select CA administrator.
+
+![Switch User](./doc/img/switchUserAdmin.jpg)
+
+##### 4.3.1. Registering an Administrator for Immutable Storage Group
+You can register an administrator for Immutable Storage group.
+1. Select the __Register__ tab.
+2. Select the __Storage Group administrator__ from the __User type__ drop-down list.
+3. Type the name you want to use as administrator in the __User name__ text box.
+4. Click the __Register__ button.
+
+After clicking the __Register__, it will fill the secret in the __Secret__ text box.
+
+![Registering a User for Immutable Storage Group](./doc/img/registerStrGrpSvc.jpg)
+
+#### 4.3.2. Enrolling an Administrator for Immutable Storage Group
+You can enroll an administrator for Immutable Storage group.
+1. Select the __Enroll__ tab.
+2. Type the name for Immutable Storage group in the __Username__ text box.
+3. Type the secret, which was printed in the __Register Secret__ text box, in the __Secret__ text box.
+4. Click the __Enroll__ button.
+
+![Enrolling a Storage groupRegister for Immutable Storage Group](./doc/img/enrollStrGrpSvc.jpg)
+
+#### 4.3.3. Exporting an Immutable Storage Group
+You can import some Immutable Storage services to create an Immutable Storage Group.
+1. Select the __Storage Service__ tab.
+2. Click the __Import__ button.
+3. Select the ".dat" file that was saved in Section 4.2.3, "Exporting Immutable Storage Service".
+
+![Import Immutable Storage Group](./doc/img/importStrSvc.jpg)
+
+4. Click the __Export__ button.
+5. Click the __Save File__ button in opening file dialog.
+
+![Export Immutable Storage Group](./doc/img/exportStrGrpSvc.jpg)
+
+#### 4.4. Enabling an Immutable Storage Group
+You can deploy an Immutable Storage group as the administrator for Immutable Storage service.
+
+1. Select the __Swith User__ tab.
+2. Click the administrator name for Immutable Storage service in the __Select a user__ list.
+3. Select the administrator tab between the __Enroll__ and the __Switch User__ tab.
+4. Select the __Storage Service__ tab.
+5. Click the __Join__ button.
+6. Select the ".block" file that was saved in Section 4.3.3, "Exporting an Immutable Storage Group".
+
+![Join Storage Group](./doc/img/joinStrGrpSvc.jpg)
+
+7. Click the __Enable__ button to deploy the Immutable Storage group on the Immutable Storage service.
+
+![Enabling Storage Group](./doc/img/enableStrGrp.jpg)
+
+After clicking the __Enable__ button, it will appear "Available" instead of the Enable button.
+
+![Available Storage Group](./doc/img/availableStorageGroup.jpg)
+
+## Install Immutable Storage Service Client
 
 ## Legal
 ### License
 Unless otherwise noted, source files are distributed under the Apache License, Version 2.0 found in the LICENSE file.
 
 ### Trademarks
-Linux and Kubernets are trademarks of The Linux Foundation registered in the United States and/or other countries. All other trademars are the property of their respective owners.
+Linux and Kubernets are trademarks of The Linux Foundation registered in the United States and/or other countries.
+Mozilla, Firefox and the Firefox logo are trademarks of the Mozilla Foundation in the U.S. and other countries.
+All other trademars are the property of their respective owners.
