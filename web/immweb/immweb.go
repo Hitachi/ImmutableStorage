@@ -70,13 +70,22 @@ func RegisterCallback() {
 	gl.Set("reqBoxCancel", js.FuncOf(reqBoxCancel))
 }
 
+func isCurIdEncrypted() bool {
+	_, err := websto.GetCurrentID()
+	if err == nil {
+		return false
+	}
+
+	return err.Error() == websto.ERR_ENCRYPTED_KEY
+}
+
 func getCurrentIdWithDecryptingKey() (*immclient.UserID, error) {
 	id, err := websto.GetCurrentID()
 	if err == nil {
 		return id, nil
 	}
 
-	if err.Error() != "encrypted key" {
+	if err.Error() != websto.ERR_ENCRYPTED_KEY {
 		return nil, err
 	}
 
@@ -102,7 +111,7 @@ func MakeFirstTabs(){
 	var defaultTab js.Value
 	id, err := getCurrentIdWithDecryptingKey()
 	if err == nil {
-		makeUserTab(id)
+		makeUserTab(id.Name, id)
 		defaultTab = doc.Call("getElementById", "userTab")
 	} else {
 		defaultTab = doc.Call("getElementById", "enrollTab")
@@ -137,7 +146,7 @@ func enroll(this js.Value, i []js.Value) interface{} {
 		storeKeyPair(username, id)
 		localStorage.Call("setItem", "lastUser", id.Name)
 
-		makeUserTab(id)
+		makeUserTab(id.Name, id)
 
 		adminHost := id.GetStorageAdminHost()
 		adminGrpHost := id.GetGrpAdminHost()
@@ -339,10 +348,10 @@ func switchUser(this js.Value, in []js.Value) interface{} {
 
 	storage.Call("setItem", "lastUser", username)
 	id, err := websto.GetCurrentID()
-	if err != nil {
+	if err != nil && err.Error() != websto.ERR_ENCRYPTED_KEY {
 		return nil
 	}
-	go makeUserTab(id)
+	go makeUserTab(username, id)
 
 	return nil
 }
@@ -398,9 +407,7 @@ func updateSwitchUserContent() {
 	}()
 }
 
-func makeUserTab(id *immclient.UserID) {
-	username := id.Name
-	
+func makeUserTab(username string, id *immclient.UserID) {
 	loc := js.Global().Get("location")
 	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
 
@@ -409,8 +416,11 @@ func makeUserTab(id *immclient.UserID) {
 	tabBtn.Set("hidden", false)
 	tabBtn.Set("innerHTML", username)
 
-	_, err := id.GetIdentity(url, username)
-	hasRegistrarRoleF := err == nil
+	hasRegistrarRoleF := false
+	if id != nil {
+		_, err := id.GetIdentity(url, username)
+		hasRegistrarRoleF = err == nil		
+	}
 
 	userContent := doc.Call("getElementById", "userContent")
 	html := "<h3>" + username + "</h3>\n"
@@ -437,7 +447,8 @@ func makeUserTab(id *immclient.UserID) {
 
 func updateUserContent() {
 	go func() {
-		_, err := getCurrentIdWithDecryptingKey()
+		encryptedIdF := isCurIdEncrypted()
+		id, err := getCurrentIdWithDecryptingKey()
 		if err != nil {
 			doc := js.Global().Get("document")
 			tabBtn := doc.Call("getElementById", "userTab")
@@ -445,6 +456,11 @@ func updateUserContent() {
 
 			userContent := doc.Call("getElementById", "userContent")
 			userContent.Set("innerHTML", "")
+			return
+		}
+		
+		if encryptedIdF {
+			makeUserTab(id.Name, id)
 		}
 	}()
 }

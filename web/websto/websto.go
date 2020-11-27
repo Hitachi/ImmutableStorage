@@ -28,6 +28,10 @@ import (
 	"crypto/x509"
 )
 
+const (
+	ERR_ENCRYPTED_KEY = "encrypted key"
+)
+
 func ConvToArray(src string) []byte {
 	srcArray := strings.Split(src, ",")
 	dst := make([]byte, len(srcArray))
@@ -93,7 +97,7 @@ func GetCurrentID() (*immclient.UserID, error) {
 
 	privPem, _ := pem.Decode(userOnSto.Priv)
 	if x509.IsEncryptedPEMBlock(privPem) {
-		return nil, errors.New("encrypted key")
+		return nil, errors.New(ERR_ENCRYPTED_KEY)
 	}
 	
 	cachedUser = userOnSto
