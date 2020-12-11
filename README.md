@@ -201,7 +201,7 @@ After clicking the __Enable__ button, it will appear "Available" instead of the 
 
 ![Available Storage Group](./doc/img/availableStorageGroup.jpg)
 
-## Install Immutable Storage Service Client
+## Immutable Storage Service Client
 
 ## Legal
 ### License
