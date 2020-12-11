@@ -43,7 +43,7 @@ func ConvToArray(src string) []byte {
 	return dst
 }
 
-func getIDFromStorage(username string) (*immclient.UserID, error) {
+func GetIDFromStorage(username string) (*immclient.UserID, error) {
 	gl := js.Global()
 	storage := gl.Get("localStorage")
 
@@ -90,7 +90,7 @@ func GetCurrentID() (*immclient.UserID, error) {
 		return cachedUser, nil
 	}
 
-	userOnSto, err := getIDFromStorage(userName)
+	userOnSto, err := GetIDFromStorage(userName)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func DecryptKey(keyPass string) error {
 		return err
 	}
 
-	userOnSto, err := getIDFromStorage(userName)
+	userOnSto, err := GetIDFromStorage(userName)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func DecryptKey(keyPass string) error {
 }
 
 func IsPasswordRequired(username string) bool {
-	id, err := getIDFromStorage(username)
+	id, err := GetIDFromStorage(username)
 	if err != nil {
 		return false
 	}

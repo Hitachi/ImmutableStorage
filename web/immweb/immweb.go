@@ -1962,7 +1962,11 @@ func exportKey(this js.Value, in []js.Value) interface{} {
 		}
 		defer func() { exportKeyLock = 0 }()
 
-		id, err := websto.GetCurrentID()
+		userName, err := websto.GetCurrentUsername()
+		if err != nil {
+			return
+		}
+		id, err := websto.GetIDFromStorage(userName)
 		if err != nil {
 			return
 		}
