@@ -40,4 +40,7 @@ spec:
     hostPath:
       path: /var/snap/microk8s/common/run/containerd.sock
       type: FileOrCreate
-      
+  dnsConfig:
+    options:
+    - name: ndots
+      value: "1"

@@ -81,6 +81,7 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	repn := int32(1)
 	privMode := int32(0400)
 	certMode := int32(0444)
+	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: caHostname,
@@ -119,6 +120,11 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 					},
 					Hostname: immutil.CAHostname,
 					Subdomain: immutil.K8sSubDomain,
+					DNSConfig: &corev1.PodDNSConfig{
+						Options: []corev1.PodDNSConfigOption{
+							{ Name: "ndots", Value: &ndots },
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name: immutil.CAHostname,
