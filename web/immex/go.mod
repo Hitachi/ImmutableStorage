@@ -6,7 +6,7 @@ replace websto => ../websto
 
 replace immclient => ../immclient
 
-replace immop => ../immop
+replace immop => ../../server/immop
 
 replace google.golang.org/grpc => ../grpc
 
