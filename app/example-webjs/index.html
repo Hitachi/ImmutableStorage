@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="ImmutableDS.css">
+  <meta charset="utf-8">
+  <title>Immutable Storage Example for Web</title>
+</head>
+
+<body>
+	<script src="wasm_exec.js"></script>
+
+	<script>
+		if (!WebAssembly.instantiateStreaming) {
+			WebAssembly.instantiateStreaming = async (resp, importObject) => {
+				const source = await (await resp).arrayBuffer();
+				return await WebAssembly.instantiate(source, importObject);
+			};
+		}
+
+		const go = new Go();
+		let mod, inst;
+		WebAssembly.instantiateStreaming(fetch("immex.wasm"), go.importObject).then( async (result) => {
+            mod = result.module;
+            inst = result.instance;
+            go.run(inst);
+
+            getTxIdOnLedger('storage-grp', 'prog3').then( () => {
+                var timeout = Number(new Date()) + 60*1000; // 1 min
+                var checkComp = (resolve, reject) => {
+                    getTxIdOnLedgerComp().then(
+                        txIDs => { resolve(txIDs) },
+                        () => {
+                            if( Number(new Date()) < timeout ){
+                                setTimeout(checkComp, 1000, resolve, reject);
+                            }else {
+                                reject(new Error("timeout: getTxIdOnLedger"));
+                            }
+                        });
+                };
+
+                return (new Promise(checkComp));
+            }).then( (txIDs) => {
+                console.log('number of TX-IDs: ' + txIDs.length);
+
+                async function asyncQueryBlock() {
+                    for(let i = 0; i < txIDs.length; i++) {
+                        var timeout = Number(new Date()) + 60*1000; // 1 min
+                        var checkComp = (resolve, reject) => {
+                            queryBlockByTxIDComp().then(
+                                block => { resolve(block) },
+                                () => {
+                                    if( Number(new Date()) < timeout ){
+                                        setTimeout(checkComp, 1000, resolve, reject);
+                                    }else{
+                                        reject(new Error("timeout: queryBlockByTxIDComp"));
+                                    }
+                                });
+                        };
+
+                        console.log('log: block[' + i + ']: ' + txIDs[i])
+                        await queryBlockByTxID('storage-grp', txIDs[i]).then(
+                            () => { return (new Promise(checkComp)); }
+                        ).then( block => {
+                            console.log(new TextDecoder("utf-8").decode(block))
+                        });
+                    }
+                }
+                asyncQueryBlock();
+
+            }).catch( (error) => {
+                console.log('error: ' + error)
+            });
+		});
+	</script>
+
+    <button onclick="recordImmData('storage-grp', 'prog3', 'Hello')">record ledger</button>
+</body>
+</html>

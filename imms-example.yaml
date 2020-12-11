@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: imms
+  namespace: default
+spec:
+  containers:
+  - image: localhost:32000/imms:1.0.0
+    env:
+    - name: IMMS_ORG
+      value: example.com
+    #- name: IMMS_CERT_COUNTRY
+    #  value: '["JP"]'
+    #- name: IMMS_CERT_LOCALITY
+    #  value: '["Tokyo"]'
+    #- name: IMMS_CERT_PROVINCE
+    #  value: '["Shinagawa"]'
+    ## - name: IMMS_EXTERNAL_IP
+    ##   value: ""
+    ## - name: IMMS_REGISTRY
+    ##   value: ""
+      
+    #command:
+    #  - sleep
+    #  - "3600"
+    imagePullPolicy: IfNotPresent
+    name: imms
+    volumeMounts:
+    - mountPath: /var/lib/ImmutableST/org
+      name: work-vol
+    - mountPath: /run/containerd.sock
+      name: containerd-sock
+  restartPolicy: Never
+  volumes:
+  - name: work-vol
+    hostPath:
+      path: /var/lib/ImmutableST/org
+      type: DirectoryOrCreate
+  - name: containerd-sock
+    hostPath:
+      path: /var/snap/microk8s/common/run/containerd.sock
+      type: FileOrCreate
+  dnsConfig:
+    options:
+    - name: ndots
+      value: "1"

@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package immop;
+option go_package = "./immop";
+
+message Credential {
+        bytes Signature = 1;
+        bytes Cert = 2;
+}
+
+message CreateServiceRequest {
+        Credential Cred = 1;
+        string MspID = 2;
+        bytes Priv = 3;
+        bytes Cert = 4;
+}
+message Reply {
+        bool NotReadyF = 1;
+        string TaskID = 2;
+}        
+
+message ExportServiceRequest {
+        Credential Cred = 1;
+        string Hostname = 2;
+}
+message ExportServiceReply {
+        string Hostname = 1;
+        string Port = 2;
+        bytes  CACert = 3;
+        bytes  AdminCert = 4;
+        bytes  TlsCACert = 5;
+}
+
+message ListServiceRequest {
+        Credential Cred = 1;
+}
+message ServiceAttribute {
+        string Hostname = 1;
+        string Type = 2;
+}
+message ListServiceReply {
+        repeated ServiceAttribute Service = 1;
+}
+
+message ImportServiceRequest {
+        Credential Cred = 1;
+        ExportServiceReply Service = 2;
+        string CAToken = 3;
+}
+
+message CreateChannelRequest {
+        Credential Cred = 1;
+        string ChannelID = 2;
+        string CAToken = 3;
+}
+
+message ListImportedServiceRequest {
+        Credential Cred = 1;
+}
+message ServiceSummary {
+        string Hostname = 1;
+        string Port = 2;
+}
+message ListImportedServiceSummary {
+        repeated ServiceSummary Peer = 1;
+}
+
+message RemoveServiceRequest {
+        Credential Cred = 1;
+        ServiceSummary Peer = 2;
+        string CAToken = 3;
+}
+
+message ListChannelReply {
+        repeated string ChName = 1;
+}
+
+message GetConfigBlockReq {
+        Credential Cred = 1;
+        string ChName = 2;       
+}
+
+message Block {
+        bytes Body = 1;
+}
+
+message PropReq {
+        Credential Cred = 1;
+        bytes Msg = 2;
+        bool WaitEventF = 3;
+        string TaskID = 4;
+}
+
+message Prop {
+        bytes Proposal = 1;
+        string TaskID = 2;
+        bool NotReadyF = 3;
+}
+
+message InstallCC {
+        Credential Cred = 1;
+        bytes Cds = 2;
+}
+
+message ActivateChannelReq {
+        Credential Cred = 1;
+        string ChannelID = 2;
+}
+
+message InstantiateReq {
+        Credential Cred = 1;
+        string ChannelID = 2;
+        string Policy = 3;
+}
+
+message ListChainCodeReply {
+        repeated string CodeName = 1;        
+}
+
+message RecordLedgerReq {
+        Credential Cred = 1;
+        string Key = 2;
+        string Log = 3;
+        string StorageGroup = 4;
+}
+
+message ReadLedgerReq {
+        Credential Cred = 1;
+        string Key = 2;
+        string StorageGroup = 3;
+}
+
+message ListChainCodeReq {
+        Credential Cred = 1;
+        string  Option = 2;
+}
+
+message QueryBlockByTxIDReq {
+        Credential Cred = 1;
+        string TxID = 2;
+        string StorageGroup = 3;
+}
+
+service ImmOperation {
+        rpc CreateService(CreateServiceRequest) returns (Reply) {}
+        rpc ExportService(ExportServiceRequest) returns (ExportServiceReply) {}
+        rpc ListService(ListServiceRequest) returns (ListServiceReply) {}
+        rpc ImportService(ImportServiceRequest) returns (Reply) {}
+        rpc ListImportedService(ListImportedServiceRequest) returns (ListImportedServiceSummary) {}
+        rpc CreateChannel(CreateChannelRequest) returns (Reply) {}
+        rpc RemoveServiceFromCh(RemoveServiceRequest) returns (Reply) {}
+        rpc GetConfigBlock(GetConfigBlockReq) returns (Block) {}
+        rpc JoinChannel(PropReq) returns (Prop) {}
+        rpc SendSignedProp(PropReq) returns (Reply) {}
+        rpc SendSignedPropAndRspDone(PropReq) returns (Prop) {}
+        rpc SendSignedPropAndRsp(PropReq) returns (Prop) {}
+        rpc SendSignedPropOrderer(PropReq) returns (Prop) {}
+        rpc ActivateChannel(ActivateChannelReq) returns (Prop) {}
+        rpc InstallChainCode(InstallCC) returns (Prop) {}
+        rpc Instantiate(InstantiateReq) returns (Prop) {}
+        rpc ListChannelInPeer(Credential) returns (Prop) {}
+        rpc ListChannelInMyOU(Credential) returns (Prop) {}
+        rpc ListChainCode(ListChainCodeReq) returns (Prop) {}
+        rpc RecordLedger(RecordLedgerReq) returns (Prop) {}
+        rpc ReadLedger(ReadLedgerReq) returns (Prop) {}
+        rpc QueryBlockByTxID(QueryBlockByTxIDReq) returns (Prop) {}
+}

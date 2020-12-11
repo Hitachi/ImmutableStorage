@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="ImmutableDS.css">
+  <meta charset="utf-8">
+  <title>Immutable Storage</title>
+</head>
+
+<body>
+
+	<script src="wasm_exec.js"></script>
+
+	<script>
+		if (!WebAssembly.instantiateStreaming) { // polyfill
+			WebAssembly.instantiateStreaming = async (resp, importObject) => {
+				const source = await (await resp).arrayBuffer();
+				return await WebAssembly.instantiate(source, importObject);
+			};
+		}
+
+		const go = new Go();
+		
+ 		let mod, inst;
+
+		WebAssembly.instantiateStreaming(fetch("immDS.wasm"), go.importObject).then( async(result) => {
+			mod = result.module;
+			inst = result.instance;
+		    await go.run(inst)
+		});
+
+	</script>
+
+
+    <!-- Tab links -->
+    <div class="tab">
+      <button class="tablinks 1" onclick="openTab(event)" id="enrollTab">Enroll</button>
+      <button class="tablinks 1" onclick="openTab(event)" id="userTab" hidden></button>
+      <button class="tablinks 1" onclick="openTab(event)" id="switchUserTab" >Switch User</button>
+    </div>
+
+    <div id="enrollContent" class="tabcontent 1">
+      <h3>Enroll user</h3>
+
+
+      <div class="cert-area">
+        <div class="row">
+          <div class="cert-item">
+          <label for="username">Username</label>
+          </div>
+          <div class="cert-input">
+            <input type="text" id="username">
+          </div>
+        </div>
+        
+        <div class="row">
+          <div class="cert-item">
+            <label for="secret">Secret</label>
+          </div>
+          <div class="cert-input">
+            <input type="password" id="secret">
+          </div>
+        </div>
+        
+        <div class="row">
+          <br>
+          <div class="immDSBtn">
+            <button onClick="enroll();" id="enrollButtion">Enroll user</button>
+          </div>
+        </div>
+        
+      </div>
+      <div class="row">
+        <p id="result"></p>
+      </div>
+
+    </div>
+
+    <div id="userContent" class="tabcontent 1">
+    </div>
+
+    <div id="switchUserContent" class="tabcontent 1">
+    </div>
+
+    <div id="reqBox" class="reqbox">
+      <div id="reqBoxContent" class="reqboxcontent">
+      </div>
+    </div>
+</body>
+</html>
