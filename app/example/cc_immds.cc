@@ -17,8 +17,8 @@ limitations under the License.
 #include <iostream>
 #include <string>
 #include <cstdlib>
-#include "../libimmds/libimmds.h"
-#include "../libimmds/libimmds.pb.h"
+#include <libimmds.h>
+#include <libimmds.pb.h>
 #include <common/common.pb.h>
 #include <peer/transaction.pb.h>
 #include <peer/proposal.pb.h>
@@ -60,33 +60,73 @@ getPassword(std::string prompt){
 }
 
 int
-main(int, char **){
-    char *username = (char *)"user1";
-    char *storageGrp = (char *)"storage-grp";
+main(int ac, char *av[]){
+    char *keyDir;
+    char *username;
+    char *storageGrp;
+    char *logData = 0;
     OpenKey_return id;
-    std::string passBuf;
+    std::string passBuf("");
+    std::string decryptErr ("failed to decrypt a key:");
 
-    passBuf = getPassword("Please enter the password: ");
+    if (ac < 5) {
+        std::cout << "Usage: " << av[0] << " key-directory username {read|write} storage-group [write-log]\n";
+        return 50;
+    }
+    keyDir = av[1];
+    username = av[2];
+    std::string op(av[3]); // operation {read|write}
+    storageGrp = av[4];
+
+    if ( (op.compare("write") != 0) && (op.compare("read") != 0) ) {
+        std::cout << "unsupported opertion: " << op << "\n";
+        std::cout << "Usage: " << av[0] << " key-directory username {read|write} storage-group [write-log]\n";
+        return 51;
+    }
+    if (op.compare("write") == 0) {
+        if (ac != 6) {
+            std::cout << "Usage: " << av[0] << " key-directory username write storage-group write-log\n";
+            return 52;
+        }
+
+        logData = av[5];
+    }
     
-    id = OpenKey(username, (char *)"/home/k8/Downloads", (char *)passBuf.c_str());
-    if(id.r1 != 0){
+    for(int i = 0; i < 5; i++){
+        id = OpenKey(username, keyDir, (char *)passBuf.c_str());
+        if (id.r1 == 0)
+            break; // success
+
+        if (i == 4) {
+            std::cerr << "error: " << id.r1 << "\n";
+            std::free(id.r1);
+            return 5;
+        }
+        
+        if (decryptErr.compare(0, decryptErr.size(), id.r1, decryptErr.size()) == 0) {
+            passBuf = getPassword("Please enter the password: ");
+            continue;
+        }
+        
         std::cerr << "error: " << id.r1 << "\n";
         std::free(id.r1);
         return 1;
     }
 
-#if 0 /// record ledger
-    char *err;
-    err = RecordLedger(id.r0, storageGrp, (char*)"logC", (char*)"1234567890");
-    if(err != 0){
-        printf("error: RecordLedger: %s\n", err);
-        free(err);
-        return 2;
+    if (op.compare("write") == 0) {
+        char *err;
+        err = RecordLedger(id.r0, storageGrp, (char*)"logCPP", logData);
+        if(err != 0){
+            printf("error: RecordLedger: %s\n", err);
+            free(err);
+            return 2;
+        }
+        
+        return 0; // sucess
     }
-#endif// record ledger
 
-
-    struct GetTxIDOnLedger_return rsp = GetTxIDOnLedger(id.r0, storageGrp, (char*)"logC");
+    // read ledger
+    struct GetTxIDOnLedger_return rsp = GetTxIDOnLedger(id.r0, storageGrp, (char*)"logCPP");
     if(rsp.r1 != 0){
         std::cerr << "error: " << rsp.r1 << "\n";
         std::free(rsp.r1);
@@ -106,6 +146,7 @@ main(int, char **){
         if(blockRet.r2 != 0){
             std::cerr << "error: " << blockRet.r2 << "\n";
             std::free(blockRet.r2);
+            return 15;
         }
 
         common::Block blockSt;

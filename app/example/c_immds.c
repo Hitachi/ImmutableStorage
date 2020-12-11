@@ -17,31 +17,59 @@ limitations under the License.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "../libimmds/libimmds.h"
+#include <libimmds.h>
 
 int
-main(){
-    char *username = "user1";
-    char *storageGrp = "storage-grp";
+main(int ac, char *av[]){
+    char *keyDir;
+    char *username;
+    char *storageGrp;
+    char *logData = 0;
+
+    if (ac < 5) {
+        printf("Usage: %s key-directory username {read|write} storage-group [write-log]\n", av[0]);
+        return 50;
+    }
+    keyDir = av[1];
+    username = av[2];
+    char *op = av[3]; // operation {read|write}
+    storageGrp = av[4];
+
+    if ( (strcmp(op, "write") != 0) && (strcmp(op, "read") != 0) ) {
+        printf("unsupported operation: %s\n", op);
+        printf("Usage: %s key-directory username {read|write} storage-group [write-log]\n", av[0]);
+        return 51;
+    }
+    if (strcmp(op, "write") == 0) {
+        if (ac != 6) {
+            printf("Usage: %s key-directory username write storage-group write-log\n", av[0]);
+            return 52;
+        }
+
+        logData = av[5];
+    }
     
     struct OpenKey_return id;
-    id = OpenKey(username, "/home/k8/Downloads", 0);
+    id = OpenKey(username, keyDir, 0);
     if(id.r1 != 0){
         printf("error: %s\n", id.r1);
         free(id.r1);
         return 1;
     }
 
-#if 0 // record log
-    char *err;
-    err = RecordLedger(id.r0, storageGrp, "logC", "Hi, ledger");
-    if(err != 0){
-        printf("error: RecordLedger: %s\n", err);
-        free(err);
-        return 2;
-    }
-#endif // record log
+    if (strcmp(op, "write") == 0) {
+        char *err;
+        err = RecordLedger(id.r0, storageGrp, "logC", logData);
+        if(err != 0){
+            printf("error: RecordLedger: %s\n", err);
+            free(err);
+            return 2;
+        }
 
+        return 0; // success
+    }
+
+    // read ledger
     struct GetTxIDOnLedger_return rsp = GetTxIDOnLedger(id.r0, storageGrp, "logC");
     if(rsp.r1 != 0){
         printf("error: %s\n", rsp.r1);

@@ -13,7 +13,9 @@ require (
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	google.golang.org/grpc v1.31.0 // indirect
 	immclient v0.0.0-00010101000000-000000000000
+	immledger v0.0.0-00010101000000-000000000000
 	immop v0.0.0-00010101000000-000000000000 // indirect
+	immutil v0.0.0-00010101000000-000000000000
 	libimmds v0.0.0-00010101000000-000000000000
 )
 
@@ -28,3 +30,7 @@ replace peer => ./peer
 replace common => ./common
 
 replace token => ./token
+
+replace immutil => ../immutil
+
+replace immledger => ../app/immledger

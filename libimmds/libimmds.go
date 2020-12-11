@@ -24,117 +24,71 @@ package main
 import "C"
 
 import (
-	"immclient"
 	"libimmds"
-	"strings"
-	"fmt"
-	"io/ioutil"
+	"immledger"
+	//	"fmt"
 	//	"encoding/hex"
 	"github.com/golang/protobuf/proto"
-	"encoding/pem"
-	"crypto/x509"
+	"encoding/hex"
+	"crypto/rand"
+	"crypto/sha256"
 )
 
-var ids map[string]*immclient.UserID = make(map[string]*immclient.UserID)
+var handler map[string]*immledger.ImmLedger = make(map[string]*immledger.ImmLedger)
+
+func generateHandlerID(username string) (id string) {
+	randNum := make([]byte, 16)
+	rand.Read(randNum)
+
+	buf := append(randNum, []byte(username)...)
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:8])
+}
 
 //export OpenKey
-func OpenKey(c_userAndOrg, c_path, c_password *C.char) (userID, retErr *C.char) {
+func OpenKey(c_userAndOrg, c_path, c_password *C.char) (retID, retErr *C.char) {
 	userAndOrg := C.GoString(c_userAndOrg)
-	userAndOrgStr := strings.SplitN(userAndOrg, "@", 2)
-	username := userAndOrgStr[0]
-	org := ""
-	if len(userAndOrgStr) >= 2 {
-		org = userAndOrgStr[1]
-	}
 	path := C.GoString(c_path)
 	password := C.GoString(c_password)
-	
-	//	print("username: " + username + ", path: " + path + "\n")
-	priv, err := ioutil.ReadFile(path+"/"+username+"_sk")
+
+	ledger, err := immledger.OpenKey(userAndOrg, path, password)
 	if err != nil {
-		retErr = C.CString("OpenKey: " + err.Error())
+		retErr = C.CString(err.Error())
 		return
 	}
 
-	privPem, _ := pem.Decode(priv)
-	if x509.IsEncryptedPEMBlock(privPem) {
-		privAsn1, err := x509.DecryptPEMBlock(privPem, []byte(password))
-		if err != nil {
-			retErr = C.CString("failed to decrypt a key: " + err.Error())
-			return
-		}
-
-		priv = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1})
-	}		
-
-	cert, err := ioutil.ReadFile(path+"/"+username+"-cert.pem")
-	if err != nil {
-		retErr = C.CString("OpenKey: " + err.Error())
-		return
-	}
-
-	id := &immclient.UserID{Name: username, Priv: priv, Cert: cert}
-	issuerOrg, err := id.GetIssuerOrg()
-	if err != nil {
-		retErr = C.CString("invalid key: " + err.Error())
-		return
-	}
-	
-	if (org != "") && (org == issuerOrg) {
-		retErr = C.CString("private key was not found")
-		return
-	}
-	org = issuerOrg
-	
-	userIDStr := username + "@" + org
-	ids[userIDStr] = id
-	
-	userID = C.CString(userIDStr)
+	id := generateHandlerID(userAndOrg)
+	handler[id] = ledger
+	retID = C.CString(id)
 	return
 }
 
-func CloseKey(c_userID *C.char) (*C.char) {
-	userID := C.GoString(c_userID)
-	_, ok := ids[userID]
+//export CloseKey
+func CloseKey(c_ID *C.char) (*C.char) {
+	id := C.GoString(c_ID)
+	
+	_, ok := handler[id]
 	if !ok {
-		return C.CString("invalid user")
+		return C.CString("invalid id")
 	}
 
-	delete(ids, userID)
+	delete(handler, id)
 	return nil
 }
 
-func getIdAndUrl(userID string) (retID immclient.UserID, url string, retErr error) {
-	id, ok := ids[userID]
-	if !ok {
-		retErr = fmt.Errorf("invalid user")
-		return
-	}
-	
-	issuerOrg, _ := id.GetIssuerOrg()
-	url = "immsrv." + issuerOrg + ":8080"
-	retID = *id
-	return
-}
-
 //export RecordLedger
-func RecordLedger(c_userID, c_storageGrp, c_logName, c_msgLog *C.char) *C.char {
-	userID := C.GoString(c_userID)
+func RecordLedger(c_ID, c_storageGrp, c_logName, c_msgLog *C.char) *C.char {
+	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
-	
-	id, url, err := getIdAndUrl(userID)
-	if err != nil {
-		return C.CString(err.Error())
-	}
-
-	org := strings.SplitN(userID, "@", 2)[1]
-	if ! strings.Contains(storageGrp, ".") {
-		storageGrp += "." + org
-	}
-	
 	logName := C.GoString(c_logName)
 	msgLog := C.GoString(c_msgLog)
-	err = id.RecordLedger(storageGrp, logName, msgLog, url)
+
+	hdl, ok := handler[id]
+	if !ok {
+		return C.CString("invalid id")
+	}
+	
+	err := hdl.Write(storageGrp, logName, msgLog)
 	if err != nil {
 		return C.CString(err.Error())
 	}
@@ -143,40 +97,30 @@ func RecordLedger(c_userID, c_storageGrp, c_logName, c_msgLog *C.char) *C.char {
 }
 
 //export GetTxIDOnLedger
-func GetTxIDOnLedger(c_userID, c_storageGrp, c_logName *C.char) (response, retErr *C.char) {
-	userID := C.GoString(c_userID)
+func GetTxIDOnLedger(c_ID, c_storageGrp, c_logName *C.char) (response, retErr *C.char) {
+	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
+	logName := C.GoString(c_logName)
+
+	hdl, ok := handler[id]
+	if !ok {
+		retErr = C.CString("invalid id")
+		return
+	}
 	
-	id, url, err := getIdAndUrl(userID)
+	txIDs, err := hdl.GetTxID(storageGrp, logName)
 	if err != nil {
 		retErr = C.CString(err.Error())
 		return
 	}
 
-	org := strings.SplitN(userID, "@", 2)[1]
-	if ! strings.Contains(storageGrp, ".") {
-		storageGrp += "." + org
-	}
-
-	logName := C.GoString(c_logName)
-	history, err := id.ReadLedger(storageGrp, logName, url)
-	if err != nil {
-		retErr = C.CString("could not read ledger: " + err.Error())
-		return
-	}
-
 	txIdArray := &libimmds.TxIdList{}
-	txIdArray.TxID = make([]string, len(*history))
-	for i, item := range *history {
-		txIdArray.TxID[i] = item.TxId
-		//		print("TxID: " + item.TxId + "\n")
-	}
+	txIdArray.TxID = txIDs
 	txIdBuf, err := proto.Marshal(txIdArray)
 	if err != nil {
 		retErr = C.CString("failed to marshal TxIDs: " + err.Error())
 		return
 	}
-	//	fmt.Printf("txIdBuf:\n%s", hex.Dump(txIdBuf))
 
 	responseTmp := (C.malloc(C.size_t(len(txIdBuf))))
 	if len(txIdBuf) > (1<<26)/*64MB*/ {
@@ -190,24 +134,21 @@ func GetTxIDOnLedger(c_userID, c_storageGrp, c_logName *C.char) (response, retEr
 }
 
 //export QueryBlockByTxID
-func QueryBlockByTxID(c_userID, c_storageGrp, c_txID *C.char) (response *C.char, rspLen C.ulong, retErr *C.char) {
-	userID := C.GoString(c_userID)
+func QueryBlockByTxID(c_ID, c_storageGrp, c_txID *C.char) (response *C.char, rspLen C.ulong, retErr *C.char) {
+	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
+	txID := C.GoString(c_txID)
 	
-	id, url, err := getIdAndUrl(userID)
-	if err != nil {
-		retErr = C.CString(err.Error())
+	hdl, ok := handler[id]
+	if !ok {
+		retErr = C.CString("invalid id")
 		return
 	}
+	
 
-	org := strings.SplitN(userID, "@", 2)[1]
-	if ! strings.Contains(storageGrp, ".") {
-		storageGrp += "." + org
-	}
-
-	block, err := id.QueryBlockByTxID(storageGrp, C.GoString(c_txID), url)
+	block, err := hdl.GetBlockByTxID(storageGrp,txID)
 	if err != nil {
-		retErr = C.CString("could not read block: " + err.Error())
+		retErr = C.CString(err.Error())
 		return
 	}
 

@@ -13,9 +13,12 @@ require (
 	github.com/sykesm/zap-logfmt v0.0.3 // indirect
 	go.uber.org/zap v1.15.0 // indirect
 	google.golang.org/grpc v1.30.0 // indirect
-	gopkg.in/yaml.v2 v2.3.0
+	gopkg.in/yaml.v2 v2.4.0
 	immclient v0.0.0-00010101000000-000000000000
+	immledger v0.0.0-00010101000000-000000000000
 	immop v0.0.0-00010101000000-000000000000 // indirect
 )
 
 replace immop => ../../server/immop
+
+replace immledger => ../immledger

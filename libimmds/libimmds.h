@@ -78,18 +78,19 @@ extern "C" {
 
 /* Return type for OpenKey */
 struct OpenKey_return {
-	char* r0; /* userID */
+	char* r0; /* retID */
 	char* r1; /* retErr */
 };
 extern struct OpenKey_return OpenKey(char* c_userAndOrg, char* c_path, char* c_password);
-extern char* RecordLedger(char* c_userID, char* c_storageGrp, char* c_logName, char* c_msgLog);
+extern char* CloseKey(char* c_ID);
+extern char* RecordLedger(char* c_ID, char* c_storageGrp, char* c_logName, char* c_msgLog);
 
 /* Return type for GetTxIDOnLedger */
 struct GetTxIDOnLedger_return {
 	char* r0; /* response */
 	char* r1; /* retErr */
 };
-extern struct GetTxIDOnLedger_return GetTxIDOnLedger(char* c_userID, char* c_storageGrp, char* c_logName);
+extern struct GetTxIDOnLedger_return GetTxIDOnLedger(char* c_ID, char* c_storageGrp, char* c_logName);
 
 /* Return type for QueryBlockByTxID */
 struct QueryBlockByTxID_return {
@@ -97,7 +98,7 @@ struct QueryBlockByTxID_return {
 	long unsigned int r1; /* rspLen */
 	char* r2; /* retErr */
 };
-extern struct QueryBlockByTxID_return QueryBlockByTxID(char* c_userID, char* c_storageGrp, char* c_txID);
+extern struct QueryBlockByTxID_return QueryBlockByTxID(char* c_ID, char* c_storageGrp, char* c_txID);
 
 #ifdef __cplusplus
 }
