@@ -2,7 +2,7 @@
 
 Immutable Storage for storing history, log or ledger.
 
-To detect who recored data and changed data or not, recorded data is signed by recorder private key and stored with certificate to storage. We are also able to know where storage has data since stored data is signed by storage service.
+To detect who record or change data, recorded data is signed by recorder private key and stored with certificate to storage. We are also able to know where storage has data since stored data is signed by storage service.
 It is important to store your private key to your private storage. You should not store decrypted private key to remote storage. However, you can not create signature before decrypting private key with secret password. Therefore, you should sign data in your LOCAL computer.
 
 Immutable Storage is a tool to store unchangeable data such as history, log, or ledger.
@@ -40,7 +40,7 @@ Your syslog client will get Immutable Storage functions without adding codes if 
 - containerd for image registry
 - An Internet connection
 
-### 1. Installing an Docker Image to Your Registry
+### 1. Installing a Docker Image to Your Registry
 The Immutable Storage Docker image can be installed to your registry with the following command as root or through sudo.
 
 ```sh
@@ -72,7 +72,7 @@ Immutable Storage service pulls docker images using the containerd socket. The s
       path: /var/snap/microk8s/common/run/containerd.sock
 ```
 
-### 3. Creating Resouces for Immutable Storage Service
+### 3. Creating Resources for Immutable Storage Service
 Resources for Immutable Storage service can be created with the following command.
 
 ```sh
@@ -107,11 +107,11 @@ kubernetes   ClusterIP      10.152.183.1     <none>         443/TCP          7d
 www          LoadBalancer   10.152.183.104   10.64.140.44   443:30126/TCP    3m28s
 ```
 
-You can enter a username and secret with Web-browser and then click "Enroll user" to enroll CA administrator. In this case, a username is "admin" and secret is "WNB57zcz".
+You can enter a username and a secret with Web-browser and then click "Enroll user" to enroll CA administrator. In this case, the username is "admin", and the secret is "WNB57zcz".
 ![Enrolling a CA admin](./doc/img/enrollAdmin.jpg)
 
 #### 4.2. Creating an Immutable Storage Service
-You can enroll an administor to create an Immutable Storage service.
+You can enroll an administrator to create an Immutable Storage service.
 
 ##### 4.2.1. Registering an Administrator for Immutable Storage service
 You can add an administrator for Immutable Storage service as CA administrator.
@@ -184,7 +184,7 @@ You can import some Immutable Storage services to create an Immutable Storage Gr
 #### 4.4. Enabling an Immutable Storage Group
 You can deploy an Immutable Storage group as the administrator for Immutable Storage service.
 
-1. Select the __Swith User__ tab.
+1. Select the __Switch User__ tab.
 2. Click the administrator name for Immutable Storage service in the __Select a user__ list.
 3. Select the administrator tab between the __Enroll__ and the __Switch User__ tab.
 4. Select the __Storage Service__ tab.
@@ -210,4 +210,4 @@ Unless otherwise noted, source files are distributed under the Apache License, V
 ### Trademarks
 Linux and Kubernets are trademarks of The Linux Foundation registered in the United States and/or other countries.
 Mozilla, Firefox and the Firefox logo are trademarks of the Mozilla Foundation in the U.S. and other countries.
-All other trademars are the property of their respective owners.
+All other trademarks are the property of their respective owners.
