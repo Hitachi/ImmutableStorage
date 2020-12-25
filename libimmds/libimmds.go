@@ -76,19 +76,19 @@ func CloseKey(c_ID *C.char) (*C.char) {
 	return nil
 }
 
-//export RecordLedger
-func RecordLedger(c_ID, c_storageGrp, c_logName, c_msgLog *C.char) *C.char {
+//export RecordImmData
+func RecordImmData(c_ID, c_storageGrp, c_key, c_msg *C.char) *C.char {
 	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
-	logName := C.GoString(c_logName)
-	msgLog := C.GoString(c_msgLog)
+	keyName := C.GoString(c_key)
+	msg:= C.GoString(c_msg)
 
 	hdl, ok := handler[id]
 	if !ok {
 		return C.CString("invalid id")
 	}
 	
-	err := hdl.Write(storageGrp, logName, msgLog)
+	err := hdl.Write(storageGrp, keyName, msg)
 	if err != nil {
 		return C.CString(err.Error())
 	}
@@ -96,11 +96,11 @@ func RecordLedger(c_ID, c_storageGrp, c_logName, c_msgLog *C.char) *C.char {
 	return nil
 }
 
-//export GetTxIDOnLedger
-func GetTxIDOnLedger(c_ID, c_storageGrp, c_logName *C.char) (response, retErr *C.char) {
+//export GetTxID
+func GetTxID(c_ID, c_storageGrp, c_key *C.char) (response, retErr *C.char) {
 	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
-	logName := C.GoString(c_logName)
+	keyName := C.GoString(c_key)
 
 	hdl, ok := handler[id]
 	if !ok {
@@ -108,7 +108,7 @@ func GetTxIDOnLedger(c_ID, c_storageGrp, c_logName *C.char) (response, retErr *C
 		return
 	}
 	
-	txIDs, err := hdl.GetTxID(storageGrp, logName)
+	txIDs, err := hdl.GetTxID(storageGrp, keyName)
 	if err != nil {
 		retErr = C.CString(err.Error())
 		return
@@ -133,8 +133,8 @@ func GetTxIDOnLedger(c_ID, c_storageGrp, c_logName *C.char) (response, retErr *C
 	return
 }
 
-//export QueryBlockByTxID
-func QueryBlockByTxID(c_ID, c_storageGrp, c_txID *C.char) (response *C.char, rspLen C.ulong, retErr *C.char) {
+//export GetBlockByTxID
+func GetBlockByTxID(c_ID, c_storageGrp, c_txID *C.char) (response *C.char, rspLen C.ulong, retErr *C.char) {
 	id := C.GoString(c_ID)
 	storageGrp := C.GoString(c_storageGrp)
 	txID := C.GoString(c_txID)

@@ -83,22 +83,22 @@ struct OpenKey_return {
 };
 extern struct OpenKey_return OpenKey(char* c_userAndOrg, char* c_path, char* c_password);
 extern char* CloseKey(char* c_ID);
-extern char* RecordLedger(char* c_ID, char* c_storageGrp, char* c_logName, char* c_msgLog);
+extern char* RecordImmData(char* c_ID, char* c_storageGrp, char* c_key, char* c_msg);
 
-/* Return type for GetTxIDOnLedger */
-struct GetTxIDOnLedger_return {
+/* Return type for GetTxID */
+struct GetTxID_return {
 	char* r0; /* response */
 	char* r1; /* retErr */
 };
-extern struct GetTxIDOnLedger_return GetTxIDOnLedger(char* c_ID, char* c_storageGrp, char* c_logName);
+extern struct GetTxID_return GetTxID(char* c_ID, char* c_storageGrp, char* c_key);
 
-/* Return type for QueryBlockByTxID */
-struct QueryBlockByTxID_return {
+/* Return type for GetBlockByTxID */
+struct GetBlockByTxID_return {
 	char* r0; /* response */
 	long unsigned int r1; /* rspLen */
 	char* r2; /* retErr */
 };
-extern struct QueryBlockByTxID_return QueryBlockByTxID(char* c_ID, char* c_storageGrp, char* c_txID);
+extern struct GetBlockByTxID_return GetBlockByTxID(char* c_ID, char* c_storageGrp, char* c_txID);
 
 #ifdef __cplusplus
 }
