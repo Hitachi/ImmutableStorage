@@ -1,0 +1,56 @@
+name: imm-client
+base: core20
+version: 1.0.0
+summary: Examples for Immutable Storage client
+description: |
+  cc_immds is C++ example and c_immds is C example.
+
+type: app
+grade: devel
+confinement: devmode
+apps:
+  cc:
+    command: bin/cc_immds
+  c:
+    command: bin/c_immds
+    
+parts:
+  c:
+    plugin: nil
+    after:
+      - cc
+  cc:
+    plugin: make
+    source: .
+    source-subdir: app/example
+    source-type: local
+    build-packages: [gcc,g++]
+    override-build: |
+      (cd /root/stage; /usr/bin/find -print | cpio -o | cpio -idu -D /)
+      snapcraftctl build
+    after:
+      - libimmds
+  libimmds:
+    plugin: make
+    source: .
+    source-subdir: libimmds
+    source-type: local
+    override-build: |
+      (cd /root/stage; /usr/bin/find -print | cpio -o | cpio -idu -D /)
+      snapcraftctl build
+    organize:
+      lib/libimmds.so: usr/lib/libimmds.so
+    after:
+      - libprotobuf
+    
+  libprotobuf:
+    plugin: autotools
+    autotools-configure-parameters:
+      - --prefix=/usr
+    build-packages:
+      - unzip
+      - curl
+    stage-packages: []
+    source: https://github.com/protocolbuffers/protobuf.git
+    source-type: git
+    source-tag: v3.12.4
