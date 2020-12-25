@@ -25,13 +25,13 @@ Storage Group consists of one or more than one Immutable Storage service.
 ### Immutable Storage client
 There are the following three types of client for each application.
 
-1. Web application
+1. Web applications: 
 You can extend your web application to record immutable and confidential data using WASM module (i.e. imms.wasm)
 
-2. Linux native application
-Your Linux native application can add Immutable Storage functions from a library without writing lots of codes.
+2. Native Linux applications: 
+Your Linux application can add Immutable Storage functions from a library without writing lots of codes.
 
-3. Syslog client
+3. Syslog clients: 
 Your syslog client will get Immutable Storage functions without adding codes if you edit a configuration file for rsyslogd.
 
 ## Install Immutable Storage Service
@@ -201,7 +201,7 @@ After clicking the __Enable__ button, it will appear "Available" instead of the 
 
 ![Available Storage Group](./doc/img/availableStorageGroup.jpg)
 
-## Immutable Storage Service Client
+## [Immutable Storage Service Client](./doc/ImmutableStorageClient.md)
 
 ## Legal
 ### License
