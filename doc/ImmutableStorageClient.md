@@ -9,7 +9,7 @@ You can register a user for client as CA administrator.
 4. Click the __Register__ button.
 
 After clicking the __Register__, it will fill the secret in the __Secret__ text box.
-You must prevent other user from seeing this secret, and send it to the registered user.
+You must prevent the other users from seeing this secret and send it to the registered user.
 
 ![Registering an Application User](./img/registerAppUser.jpg)
 
@@ -27,7 +27,7 @@ The certificate for this public key will be issued by the CA, and then a key pai
 
 ## 2. Selecting an Application User
 You can use a key pair for an application user to access Immutable Storage service.
-You have to export this key pair to regular files except in Web applications since this key pair is stored on your browser.
+You need to export this key pair to regular files except in Web applications since this key pair is stored on your browser.
 1. Select the __Key Management__ tab.
 2. Click the __Export__ button at the "Private key".
 3. Click another __Export__ button at the "Certificate".
@@ -62,7 +62,7 @@ If you want to specify the key pair in the immconfig.ayml file, you should set e
 id = OpenKey((char*)"", (char*)"", (char*)"");
 ```
 
-The OpneKey() returns an OpenKey_return struct. On success, it sets _r0_ a ID related to the key pair. If it detects an error, it sets _r1_ an error message with the reason.
+The OpenKey() returns an OpenKey_return struct. On success, it sets _r0_ an ID related to the key pair. If it detects an error, it sets _r1_ an error message with the reason.
 
 __Example__
 ```C++
