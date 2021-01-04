@@ -3,7 +3,7 @@ base: core20
 version: 1.0.0
 summary: Examples for Immutable Storage client
 description: |
-  cc_immds is C++ example and c_immds is C example.
+  imm-client.cc, imm-client,c and imm-client.go are examples for C++, C and golang, respectively.
 
 type: app
 grade: devel
@@ -13,6 +13,8 @@ apps:
     command: bin/cc_immds
   c:
     command: bin/c_immds
+  go:
+    command: bin/go_immst
     
 parts:
   c:
@@ -30,6 +32,11 @@ parts:
       snapcraftctl build
     after:
       - libimmds
+  go:
+    plugin: go
+    source: .
+    source-subdir: app/example-go
+    source-type: local
   libimmds:
     plugin: make
     source: .
@@ -46,7 +53,7 @@ parts:
   libprotobuf:
     plugin: autotools
     autotools-configure-parameters:
-      - --prefix=/usr
+      - --prefix=/usr --disable-static
     build-packages:
       - unzip
       - curl
