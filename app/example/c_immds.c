@@ -59,9 +59,9 @@ main(int ac, char *av[]){
 
     if (strcmp(op, "write") == 0) {
         char *err;
-        err = RecordLedger(id.r0, storageGrp, "logC", logData);
+        err = RecordImmData(id.r0, storageGrp, "logC", logData);
         if(err != 0){
-            printf("error: RecordLedger: %s\n", err);
+            printf("error: RecordImmData: %s\n", err);
             free(err);
             return 2;
         }
@@ -69,15 +69,15 @@ main(int ac, char *av[]){
         return 0; // success
     }
 
-    // read ledger
-    struct GetTxIDOnLedger_return rsp = GetTxIDOnLedger(id.r0, storageGrp, "logC");
+    // load immutable data
+    struct GetTxID_return rsp = GetTxID(id.r0, storageGrp, "logC");
     if(rsp.r1 != 0){
         printf("error: %s\n", rsp.r1);
         free(rsp.r1);
         return 3;
     }
 
-    struct QueryBlockByTxID_return blockRet;
+    struct GetBlockByTxID_return blockRet;
     char TxID[0x40+1];
     char *protoP = rsp.r0;
 
@@ -100,7 +100,7 @@ main(int ac, char *av[]){
         TxID[0x40] = 0;
         printf("TxID: %s\n", TxID);
 
-        blockRet = QueryBlockByTxID(id.r0, storageGrp, TxID);
+        blockRet = GetBlockByTxID(id.r0, storageGrp, TxID);
         if(blockRet.r2 != 0){
             printf("error: %s\n", blockRet.r2);
             free(rsp.r0);

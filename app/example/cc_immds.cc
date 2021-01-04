@@ -115,9 +115,9 @@ main(int ac, char *av[]){
 
     if (op.compare("write") == 0) {
         char *err;
-        err = RecordLedger(id.r0, storageGrp, (char*)"logCPP", logData);
+        err = RecordImmData(id.r0, storageGrp, (char*)"logCPP", logData);
         if(err != 0){
-            printf("error: RecordLedger: %s\n", err);
+            printf("error: RecordImmData: %s\n", err);
             free(err);
             return 2;
         }
@@ -125,8 +125,8 @@ main(int ac, char *av[]){
         return 0; // sucess
     }
 
-    // read ledger
-    struct GetTxIDOnLedger_return rsp = GetTxIDOnLedger(id.r0, storageGrp, (char*)"logCPP");
+    // load immutable data
+    struct GetTxID_return rsp = GetTxID(id.r0, storageGrp, (char*)"logCPP");
     if(rsp.r1 != 0){
         std::cerr << "error: " << rsp.r1 << "\n";
         std::free(rsp.r1);
@@ -137,12 +137,12 @@ main(int ac, char *av[]){
     list.ParseFromString(std::string(rsp.r0));
     std::free(rsp.r0);
 
-    struct QueryBlockByTxID_return blockRet;
+    struct GetBlockByTxID_return blockRet;
     std::cout << "number of ids = " << list.txid_size() << "\n";
     for(int i = 0; i < list.txid_size(); i++){
         std::cout << "TxID: " << list.txid(i) << "\n";
 
-        blockRet = QueryBlockByTxID(id.r0, storageGrp, (char*)list.txid(i).c_str());
+        blockRet = GetBlockByTxID(id.r0, storageGrp, (char*)list.txid(i).c_str());
         if(blockRet.r2 != 0){
             std::cerr << "error: " << blockRet.r2 << "\n";
             std::free(blockRet.r2);

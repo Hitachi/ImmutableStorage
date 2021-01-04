@@ -34,12 +34,11 @@ const (
 func registerJsFunc() {
 	gl := js.Global()
 	gl.Set("recordImmData", js.FuncOf(recordImmData))
-	gl.Set("getTxIdOnLedger", js.FuncOf(getTxIdOnLedger))
-	gl.Set("getTxIdOnLedgerComp", js.FuncOf(getTxIdOnLedgerComp))
-	gl.Set("queryBlockByTxID", js.FuncOf(queryBlockByTxID))
-	gl.Set("queryBlockByTxIDComp", js.FuncOf(queryBlockByTxIDComp))
+	gl.Set("getTxID", js.FuncOf(getTxID))
+	gl.Set("getTxIDComp", js.FuncOf(getTxIDComp))
+	gl.Set("getBlockByTxID", js.FuncOf(getBlockByTxID))
+	gl.Set("getBlockByTxIDComp", js.FuncOf(getBlockByTxIDComp))
 }
-
 
 func recordImmData(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
@@ -79,7 +78,7 @@ func recordImmData(this js.Value, in []js.Value) interface{} {
 var getTxIdLock = int32(0)
 var txIdArray []string
 
-func getTxIdOnLedger(this js.Value, in []js.Value) interface{} {
+func getTxID(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
 	loc := gl.Get("location")
 	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
@@ -123,7 +122,7 @@ func getTxIdOnLedger(this js.Value, in []js.Value) interface{} {
 	return gl.Get("Promise").Call("resolve")
 }
 
-func getTxIdOnLedgerComp(this js.Value, in []js.Value) interface{} {
+func getTxIDComp(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
 
 	print("log: getTxIdOnLedgerComp")
@@ -143,10 +142,10 @@ func getTxIdOnLedgerComp(this js.Value, in []js.Value) interface{} {
 	return gl.Get("Promise").Call("resolve", txIdList)
 }
 
-var queryBlockByTxIDLock = int32(0)
+var getBlockByTxIDLock = int32(0)
 var blockArray []byte
 
-func queryBlockByTxID(this js.Value, in []js.Value) interface{} {
+func getBlockByTxID(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
 	loc := gl.Get("location")
 	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
@@ -167,12 +166,12 @@ func queryBlockByTxID(this js.Value, in []js.Value) interface{} {
 		storageGrp += "." + org
 	}
 	
-	if atomic.CompareAndSwapInt32(&queryBlockByTxIDLock, 0, 1) == false {
+	if atomic.CompareAndSwapInt32(&getBlockByTxIDLock, 0, 1) == false {
 		return gl.Get("Promise").Call("reject", gl.Get("Error").New("another task is in progress"))
 	}
 	
 	go func(){
-		defer func() { queryBlockByTxIDLock = 0 }()
+		defer func() { getBlockByTxIDLock = 0 }()
 
 		block, err := id.QueryBlockByTxID(storageGrp, txId, url)
 		if err != nil {
@@ -190,13 +189,13 @@ func queryBlockByTxID(this js.Value, in []js.Value) interface{} {
 	return gl.Get("Promise").Call("resolve")
 }
 
-func queryBlockByTxIDComp(this js.Value, in []js.Value) interface{} {
+func getBlockByTxIDComp(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
 
-	if atomic.CompareAndSwapInt32(&queryBlockByTxIDLock, 0, 1) == false {
+	if atomic.CompareAndSwapInt32(&getBlockByTxIDLock, 0, 1) == false {
 		return gl.Get("Promise").Call("reject")
 	}
-	defer func() { queryBlockByTxIDLock = 0 }()
+	defer func() { getBlockByTxIDLock = 0 }()
 
 	blockDataArray := gl.Get("Uint8Array").New(len(blockArray))
 	js.CopyBytesToJS(blockDataArray, blockArray)
