@@ -228,7 +228,7 @@ func makeListUserInternal(){
 	tableContent := doc.Call("getElementById", "userListTable")
 
 	html := "<tr>"
-	html += `  <td>#</td><td>Name</td><td>Type</td><td>Max Enrollments</td><td>Attributes</td> <td>Affilication</td>`
+	html += `  <td>#</td><td>Name</td><td>Type</td><td>Max Enrollments</td><td>Attributes</td> <td>Affiliation</td>`
 	html += "</tr>"
 
 	for i, user := range caIDs.list {
