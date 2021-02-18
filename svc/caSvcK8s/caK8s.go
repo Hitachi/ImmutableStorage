@@ -208,17 +208,21 @@ func getCAPass(org string) (secret string, retErr error) {
 	caLabel := "app=CA"
 	basePodName := immutil.CAHostname + "." + org
 
-	podState, ver, err := immutil.K8sGetPodState(caLabel, basePodName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get a pod state: %s", err)
-	}
-
-	if podState == immutil.NotReady {
-		err = immutil.K8sWaitPodReady(ver, caLabel, basePodName)
+	for {
+		podState, ver, err := immutil.K8sGetPodState(caLabel, basePodName)
 		if err != nil {
-			return "", fmt.Errorf("The CA is not ready: %s", err)
+			return "", fmt.Errorf("failed to get a pod state: %s", err)
 		}
-	} else if podState != immutil.Ready {
+
+		if podState == immutil.Ready {
+			break
+		}
+		
+		if podState == immutil.NotReady {
+			immutil.K8sWaitPodReady(ver, caLabel, basePodName)
+			continue
+		}
+
 		return "", fmt.Errorf("The CA is in an unexpected state: " + podState)
 	}
 	
