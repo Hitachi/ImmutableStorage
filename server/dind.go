@@ -31,7 +31,6 @@ import (
 	"crypto/x509/pkix"
 	"crypto/tls"
 
-	"os"
 	"io"
 	"context"
 	"strings"
@@ -120,15 +119,15 @@ func initDockerClient(org string) (retErr error) {
 	caRoots := x509.NewCertPool()
 	ok = caRoots.AppendCertsFromPEM(caCertRaw)
 	if !ok {
-		fmt.Printf("failed to append CA certificate\n")
-		os.Exit(4)
+		retErr = fmt.Errorf("failed to append CA certificate")
+		return
 	}
 	tlsConfig.RootCAs = caRoots
 
 	cert, err := tls.X509KeyPair(certRaw, keyRaw)
 	if err != nil {
-		fmt.Printf("failed to parse a key pair: %s\n", err)
-		os.Exit(5)
+		retErr = fmt.Errorf("failed to parse a key pair: %s", err)
+		return
 	}
 	tlsConfig.Certificates = []tls.Certificate{cert}
 
@@ -178,11 +177,10 @@ func initDockerClient(org string) (retErr error) {
 
 	// find images in registry
 	registryAddr := ""
-	registryAuth := ""
 	config, _, err :=  immutil.ReadOrgConfig(org)
 	if err == nil && config.Registry != ""{
 		registryAddr = config.Registry
-		registryAuth = config.RegistryAuth
+		// registryAuth = config.RegistryAuth
 	} else {
 		registryAddr, retErr = immutil.GetLocalRegistryAddr()
 		if retErr != nil {
@@ -190,7 +188,7 @@ func initDockerClient(org string) (retErr error) {
 		}
 	}
 
-	regCli, err := immutil.NewRegClient("http://" + registryAddr, registryAuth)
+	regCli, err := immutil.NewRegClient("http://" + registryAddr)
 	if err != nil {
 		retErr = fmt.Errorf("could not connect to registry service: %s", err)
 		return
