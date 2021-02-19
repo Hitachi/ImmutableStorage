@@ -32,12 +32,6 @@ type RegClient struct {
 }
 
 func GetLocalRegistryAddr() (addr string, retErr error) {
-	isInKubeF := IsInKube()
-	if !isInKubeF {
-		addr = "localhost:32000"
-		return
-	}
-
 	service, err := K8sGetRegistryService()
 	if err != nil {
 		gw, err := getGW()
@@ -46,57 +40,66 @@ func GetLocalRegistryAddr() (addr string, retErr error) {
 			return
 		}
 		addr = gw + ":32000"
+		return
 	}
 	
 	if service.Spec.Ports == nil {
 		retErr = fmt.Errorf("unexpected registry service")
 		return
 	}
-	
-	addr = "registry.container-registry.svc.cluster.local:"
-	addr += strconv.Itoa(int(service.Spec.Ports[0].Port))
+
+	if IsInKube() {
+		addr = "registry.container-registry.svc.cluster.local:"
+		addr += strconv.Itoa(int(service.Spec.Ports[0].Port))
+		return
+	}
+
+	addr = "localhost"
+	addr += strconv.Itoa(int(service.Spec.Ports[0].NodePort))
 	return
 }
 
 func GetPullRegistryAddr(org string) (addr string, retErr error) {
 	if IsInKube() {
 		config, _, err := ReadOrgConfig(org)
-		if err != nil {
-			return "", err
-		}
-		
-		localRegAddr, err := GetLocalRegistryAddr()
-		if err != nil {
-			return "", err
-		}
-		
-		if config.Registry != "" && config.Registry != localRegAddr {
-			return config.Registry, nil
+		if err == nil && config.Registry != "" {
+			addr = config.Registry
+			return
 		}
 	}
 
-	return "localhost:32000", nil
-	/*
 	service, retErr := K8sGetRegistryService()
 	if retErr != nil {
 		return
 	}
 
-	addr = service.Spec.ClusterIP
-	addr += ":" + strconv.Itoa(int(service.Spec.Ports[0].Port))
-*/
+	if service.Spec.Ports == nil {
+		retErr = fmt.Errorf("unexpected registry service")
+		return
+	}
+
+	addr = "localhost"
+	addr += ":" + strconv.Itoa(int(service.Spec.Ports[0].NodePort))
 	return
 }
 
-func NewRegClient(url, auth string) (cli *RegClient, retErr error) {
+func ParseCredential(cred string) (username, secret string) {
+	attr := strings.SplitN(cred, ":", 2)
+	if len(attr) == 1 {
+		username = ""
+		secret = attr[0]
+		return
+	}
+
+	username = attr[0]
+	secret = attr[1]
+	return
+}
+
+func NewRegClient(url string) (cli *RegClient, retErr error) {
 	cli = &RegClient{}
 	cli.url = url
 
-	if auth != "" {
-		retErr = fmt.Errorf("not implemented")
-		return
-	}
-	
 	retErr = cli.GetBase()
 	if retErr != nil {
 		cli = nil
@@ -224,7 +227,7 @@ func (cli *RegClient) GetDigest(name, tag string) (digest string, retErr error){
 		retErr = fmt.Errorf("failed to create a request for getting deigest: " + err.Error())
 		return
 	}
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
 
 	rsp, _, err := cli.sendReq(req)
 	if err != nil {

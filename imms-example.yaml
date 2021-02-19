@@ -39,7 +39,7 @@ spec:
   - name: containerd-sock
     hostPath:
       path: /var/snap/microk8s/common/run/containerd.sock
-      type: FileOrCreate
+      type: Socket
   dnsConfig:
     options:
     - name: ndots

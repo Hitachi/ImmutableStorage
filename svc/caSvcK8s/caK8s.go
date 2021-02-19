@@ -205,6 +205,27 @@ func stopCA(subj *pkix.Name) error {
 }
 
 func getCAPass(org string) (secret string, retErr error) {
+	caLabel := "app=CA"
+	basePodName := immutil.CAHostname + "." + org
+
+	for {
+		podState, ver, err := immutil.K8sGetPodState(caLabel, basePodName)
+		if err != nil {
+			return "", fmt.Errorf("failed to get a pod state: %s", err)
+		}
+
+		if podState == immutil.Ready {
+			break
+		}
+		
+		if podState == immutil.NotReady {
+			immutil.K8sWaitPodReady(ver, caLabel, basePodName)
+			continue
+		}
+
+		return "", fmt.Errorf("The CA is in an unexpected state: " + podState)
+	}
+	
 	configFile := immutil.VolBaseDir+"/"+immutil.CAHostname+"."+org+"/data/fabric-ca-server-config.yaml"
 	getPassCmd := "grep pass: " + configFile + ` | awk '{print $2;}'`
 	cmd := exec.Command("/bin/sh", "-c", getPassCmd)

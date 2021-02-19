@@ -21,7 +21,9 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/remotes/docker"	
 	//	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"net/http"
 	
 	"fmt"
 	"os"
@@ -49,26 +51,66 @@ func Main(args []string) {
 	}
 	
 	regAddr := ""
-	regAuth := ""
 	cntUnixSock := "/var/snap/microk8s/common/run/containerd.sock"
 	
 	if immutil.IsInKube() {
 		cntUnixSock = "/run/containerd.sock"
 	}
-	
+
+
+	var pushHosts docker.RegistryHosts
 	config, _, err := immutil.ReadOrgConfig("")
 	if err == nil && config.Registry != "" {
 		regAddr = config.Registry
-		regAuth = config.RegistryAuth
+
+		privUsername, privSecret := immutil.ParseCredential(config.RegistryAuth)
+		if privSecret != "" {
+			pushHosts = docker.ConfigureDefaultRegistries(
+				docker.WithAuthorizer(
+					docker.NewDockerAuthorizer(
+						docker.WithAuthCreds(func(string) (string, string, error) {
+							return privUsername, privSecret, nil
+						}))))
+		}
+		
 	}else{
 		regAddr, err = immutil.GetLocalRegistryAddr()
 		if err != nil {
 			fmt.Printf("failed to get local registry address: %s\n", err)
 			os.Exit(1)
 		}
-	}
 
-	regCli, err := immutil.NewRegClient("http://" + regAddr, regAuth)
+		pushHosts =  docker.ConfigureDefaultRegistries(
+			docker.WithPlainHTTP(func(string) (bool, error) {
+				return true, nil
+			}))
+	}
+	
+	pushResolver := containerd.WithResolver(
+		docker.NewResolver(docker.ResolverOptions{
+			Client: http.DefaultClient,
+			Hosts: pushHosts,
+		}))
+
+
+	var dockerIoHosts docker.RegistryHosts
+	dUsername, dSecret := immutil.ParseCredential(os.Getenv("IMMS_DOCKER_IO_CRED"))
+	if dSecret != "" {
+		dockerIoHosts = docker.ConfigureDefaultRegistries(
+			docker.WithAuthorizer(
+				docker.NewDockerAuthorizer(
+					docker.WithAuthCreds(func(string) (string, string, error) {
+						return dUsername, dSecret, nil
+					}))))
+	}
+	dockerIoResolver := containerd.WithResolver(
+		docker.NewResolver(docker.ResolverOptions{
+			Client: http.DefaultClient,
+			Hosts: dockerIoHosts,
+		}))
+
+
+	regCli, err := immutil.NewRegClient("http://" + regAddr)
 	if err != nil {
 		fmt.Printf("could not connect to registry service: %s\n", err)
 		os.Exit(2)
@@ -118,7 +160,7 @@ func Main(args []string) {
 			// This image does not exist in containerd
 			fmt.Printf("pull %s\n", imgName)
 
-			cntImg, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatform("linux/amd64"), containerd.WithPullUnpack)
+			cntImg, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatform("linux/amd64"), containerd.WithPullUnpack, dockerIoResolver)
 			if err != nil {
 				fmt.Printf("failed to pull %s image: %s\n", imgName, err)
 				os.Exit(6)
@@ -128,7 +170,7 @@ func Main(args []string) {
 			cntImg = containerd.NewImage(cntCli, img)
 		}
 		
-		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target())
+		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err == nil {
 			continue // success
 		}
@@ -149,7 +191,7 @@ func Main(args []string) {
 			if err != nil {
 				fmt.Printf("failed to unpack image: %s\n", err)
 
-				_, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatformMatcher(platforms.Only(plat)), containerd.WithPullUnpack)
+				_, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatformMatcher(platforms.Only(plat)), containerd.WithPullUnpack, dockerIoResolver)
 				if err != nil {
 					fmt.Printf("failed to pull %s\n", imgName)
 					os.Exit(11)
@@ -157,9 +199,9 @@ func Main(args []string) {
 			}
 		}
 		
-		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target())
+		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err != nil {
-			fmt.Printf("failed to push %s to the registry: %s\n", err)
+			fmt.Printf("failed to push %s to the registry: %s\n", imgName, err)
 			os.Exit(12)
 		}
 	}
