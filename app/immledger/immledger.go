@@ -93,7 +93,7 @@ type ImmCfg struct {
 	UserName  string `yaml:"UserName"`
 	Password string `yaml:"Password"`
 	StorageGroup string `yaml:"StorageGroup"`
-	url string `yaml:"URL"`
+	URL string `yaml:"URL"`	
 }
 
 func readCfgFile(cfgFile string) (cfg *ImmCfg) {
@@ -113,7 +113,10 @@ func readCfgFile(cfgFile string) (cfg *ImmCfg) {
 }
 
 func (cfg *ImmCfg) SetDefaultUrl(org string) {
-	cfg.url = "envoy." + org + ":8080"
+	if cfg.URL != "" {
+		return
+	}
+	cfg.URL = "envoy." + org + ":8080"
 }
 
 func (cfg *ImmCfg) GetKeyParam() (keyPath, userName, password string) {
@@ -121,7 +124,7 @@ func (cfg *ImmCfg) GetKeyParam() (keyPath, userName, password string) {
 }
 
 func (cfg *ImmCfg) GetEndpoint() (storageGroup, url string) {
-	return cfg.StorageGroup, cfg.url
+	return cfg.StorageGroup, cfg.URL
 }
 
 func (cfg *ImmCfg) readCfgWithDefault(defaultCfg *ImmCfg) {
