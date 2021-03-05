@@ -19,7 +19,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"encoding/hex" // log:
+	// "encoding/hex" // log:
 	"fmt"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
 	sc "github.com/hyperledger/fabric/protos/peer"
@@ -68,7 +68,7 @@ func (s *SmartContract) addLog(APIstub shim.ChaincodeStubInterface, args []strin
 		return shim.Error(err.Error())
 	}
 
-	fmt.Printf("log: addLog: user=%s\n", reqUserCert.Subject.CommonName)
+	// fmt.Printf("log: addLog: user=%s\n", reqUserCert.Subject.CommonName)
 
 	if !au.HasPermission(reqUserCert, "addLog") {
 		return shim.Error("HasPermission: permission denied")
@@ -153,7 +153,7 @@ func (s *SmartContract) getLog(APIstub  shim.ChaincodeStubInterface, args []stri
 	}
 	retBuf.WriteString("]")
 
-	fmt.Printf("log: dump history:\n%s\n", hex.Dump(retBuf.Bytes()))
+	//fmt.Printf("log: dump history:\n%s\n", hex.Dump(retBuf.Bytes()))
 	return shim.Success(retBuf.Bytes())
 }
 
