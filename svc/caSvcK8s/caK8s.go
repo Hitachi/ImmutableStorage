@@ -34,6 +34,7 @@ import (
 const (
 	caConfDir = "/etc/hyperledger/fabric-ca-server-config"
 	caDataDir = "/etc/hyperledger/fabric-ca-server"
+	tlsKeyDir = "/etc/hyperledger/tls"
 	caCertFile = "ca.crt"
 	caPrivFile = "ca.key"
 )
@@ -46,6 +47,27 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 		return fmt.Errorf("failed to create keys for %s transcation: %s", subj.CommonName, err)
 	}
 
+	// create a CA for TLS
+	tlsSubj := &pkix.Name{
+		Country: subj.Country,
+		Organization: subj.Organization,
+		Locality: subj.Locality,
+		Province: subj.Province,
+		CommonName: immutil.TlsCAHostname + "." + subj.Organization[0],
+	}
+	
+	tlsCASecret, err := immutil.K8sCreateSelfKeyPair(tlsSubj)
+	if err != nil {
+		return fmt.Errorf("failed to create keys for %s CA TLS\n", tlsSubj.CommonName)
+	}
+
+	// create a certificate for TLS
+	privTLSCA, certTLSCA, _ := immutil.K8sGetKeyPair(tlsCASecret)
+	err = immutil.K8sCreateKeyPairWithSecretName(subj, privTLSCA, certTLSCA, nil, secretName+"-tls")
+	if err != nil {
+		return fmt.Errorf("failed to create a certificate for TLS\n")
+	}
+
 	org := subj.Organization[0]
 	caHostname := subj.CommonName
 	caCert := caConfDir + "/" + caCertFile
@@ -55,8 +77,8 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 		{ Name: "FABRIC_CA_HOME", Value: caDataDir, },
 		{ Name: "FABRIC_CA_SERVER_CA_NAME", Value: caName, },
 		{ Name: "FABRIC_CA_SERVER_TLS_ENABLED", Value: "true", },
-		{ Name: "FABRIC_CA_SERVER_TLS_CERTFILE", Value: caCert, },
-		{ Name: "FABRIC_CA_SERVER_TLS_KEYFILE", Value: caPrv, },
+		{ Name: "FABRIC_CA_SERVER_TLS_CERTFILE", Value: tlsKeyDir+"/"+caCertFile, },
+		{ Name: "FABRIC_CA_SERVER_TLS_KEYFILE", Value: tlsKeyDir+"/"+caPrivFile, },
 	}
 	startCaCmd := "fabric-ca-server start"
 	startCaCmd += " --ca.certfile "+caCert + " --ca.keyfile "+caPrv
@@ -117,6 +139,18 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 								},
 							},
 						},
+						{
+							Name: "keys-tlsca",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: secretName+"-tls",
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: caPrivFile, Mode: &privMode },
+										{ Key: "cert", Path: caCertFile, Mode: &certMode },
+									},
+								},
+							},
+						},
 					},
 					Hostname: immutil.CAHostname,
 					Subdomain: immutil.K8sSubDomain,
@@ -132,6 +166,7 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 							VolumeMounts: []corev1.VolumeMount{
 								{ Name: "work-vol", MountPath: caDataDir, SubPath: caHostname+"/data", },
 								{ Name: "keys-vol1", MountPath: caConfDir, },
+								{ Name: "keys-tlsca", MountPath: tlsKeyDir, },
 							},
 							Env: caEnv,
 							Command: []string{"sh", "-c", startCaCmd},

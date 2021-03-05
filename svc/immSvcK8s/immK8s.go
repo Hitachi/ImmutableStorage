@@ -87,7 +87,13 @@ func createImmsrvConf(subj *pkix.Name) error {
 	immsrvBaseDir := immutil.VolBaseDir+"/"+hostname
 	tmplImmSrvConf := immutil.TmplDir+"/immsrv"
 
-	_, err := immutil.K8sCreateSelfKeyPair(subj)
+	// create a certificate for TLS
+	tlsCASecretName := immutil.TlsCAHostname + "." + subj.Organization[0]
+	privTLSCA, certTLSCA, err := immutil.K8sGetKeyPair(tlsCASecretName)
+	if err != nil {
+		return fmt.Errorf("failed to get a key-pair for the TLS CA")
+	}
+	_, err = immutil.K8sCreateKeyPair(subj, privTLSCA, certTLSCA, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create keys: %s", err)
 	}
@@ -115,11 +121,17 @@ func createImmsrvConf(subj *pkix.Name) error {
 func createEnvoyConf(subj *pkix.Name) error {
 	hostname := subj.CommonName
 
-	_, err := immutil.K8sCreateSelfKeyPair(subj)
+	// create a certificate for TLS
+	tlsCASecretName := immutil.TlsCAHostname + "." + subj.Organization[0]
+	privTLSCA, certTLSCA, err := immutil.K8sGetKeyPair(tlsCASecretName)
+	if err != nil {
+		return fmt.Errorf("failed to get a key-pair for the TLS CA")
+	}
+	_, err = immutil.K8sCreateKeyPair(subj, privTLSCA, certTLSCA, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create keys: %s", err)
 	}
-
+	
 	// set immsrv-hostname in envoy.yaml
 	_, retErr := immutil.K8sReadEnvoyConfig(hostname)
 	if retErr == nil {
