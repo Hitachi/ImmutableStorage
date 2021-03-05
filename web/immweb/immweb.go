@@ -17,11 +17,11 @@ limitations under the License.
 package immweb
 
 import (
-	//	"fmt"
 	"strings"
 	"strconv"
 	"syscall/js"
 	"immclient"
+	"immop"
 	"websto"
 	"sync/atomic"
 	"encoding/json"
@@ -39,6 +39,7 @@ import (
 )
 
 const (
+	casrvPath = "/ca"
 	immsrvPath = "/immsrv"
 )
 
@@ -48,6 +49,7 @@ func RegisterCallback() {
 	gl.Set("openTab", js.FuncOf(openTab))
 	gl.Set("selectedUserType", js.FuncOf(selectedUserType))
 	gl.Set("inputtedRegisterName", js.FuncOf(inputtedRegisterName))
+	gl.Set("selectedAuthType", js.FuncOf(selectedAuthType))
 	gl.Set("register", js.FuncOf(register))
 	gl.Set("switchUser", js.FuncOf(switchUser))
 	gl.Set("exportService", js.FuncOf(exportService))
@@ -121,16 +123,15 @@ func MakeFirstTabs(){
 
 func enroll(this js.Value, i []js.Value) interface{} {
 	doc := js.Global().Get("document")
+	loc := js.Global().Get("location")
+	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()+immsrvPath
+	
 	username := doc.Call("getElementById", "username").Get("value").String()
 	enSecret := doc.Call("getElementById", "secret").Get("value").String()
 	doc.Call("getElementById", "secret").Set("value", "") // clear
 
 	go func() {
-		doc := js.Global().Get("document")
-		loc := js.Global().Get("location")
 		localStorage := js.Global().Get("localStorage")
-
-		url := loc.Get("protocol").String() + "//" + loc.Get("host").String() 
 
 		resultPara := doc.Call("getElementById", "result")
 		resultPara.Set("innerHTML", "enroll " + username)
@@ -174,7 +175,6 @@ func enroll(this js.Value, i []js.Value) interface{} {
 		storeKeyPair("host " + hostname, hostID)
 
 		// create a service
-		url += immsrvPath
 		err = id.CreateService("", hostID.Priv, hostID.Cert, url)
 		if err != nil {
 			resultPara.Set("innerHTML", err.Error())
@@ -189,7 +189,7 @@ func enroll(this js.Value, i []js.Value) interface{} {
 type caIdentities struct {
 	lock int32
 	execUser string
-	list []*immclient.IdentityResponse
+	list []immclient.IdentityInfo
 }
 
 var caIDs = &caIdentities{lock: 0}
@@ -212,7 +212,7 @@ func updateListUserContent(){
 
 		loc := js.Global().Get("location")
 		url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
-		users, err := id.GetAllIdentities(url)
+		users, err := id.GetAllIdentities(url+casrvPath)
 		if err != nil {
 			print("error: getAllIdentities: " +  err.Error() + "\n")
 			return
@@ -228,7 +228,7 @@ func makeListUserInternal(){
 	tableContent := doc.Call("getElementById", "userListTable")
 
 	html := "<tr>"
-	html += `  <td>#</td><td>Name</td><td>Type</td><td>Max Enrollments</td><td>Attributes</td> <td>Affilication</td>`
+	html += `  <td>#</td><td>Name</td><td>Type</td><td>Max Enrollments</td><td>Attributes</td> <td>Affiliation</td>`
 	html += "</tr>"
 
 	for i, user := range caIDs.list {
@@ -245,7 +245,7 @@ func makeListUserInternal(){
 		html += `  </div>`
 		html += `</div>`
 		html += "</td>"
-		html += "<td>" + user.Type + "</td>" // Type
+		html += "<td>" + user.GetUserType() + "</td>" // Type
 
 		strMaxEnroll := "unlimited"
 		if user.MaxEnrollments == -1 {
@@ -275,6 +275,7 @@ var updateTab = map[string] func() {
 	"immRecordLedgerContent": updateRecordLedgerContent,
 	"immReadLedgerContent": updateReadLedgerContent,
 	"userContent": updateUserContent,
+	"registerContent": updateRegisterContent,
 }
 
 func openTab(this js.Value, in []js.Value) interface{} {
@@ -346,6 +347,7 @@ func switchUser(this js.Value, in []js.Value) interface{} {
 		return nil
 	}
 
+	caIDs.execUser = ""
 	storage.Call("setItem", "lastUser", username)
 	id, err := websto.GetCurrentID()
 	if err != nil && err.Error() != websto.ERR_ENCRYPTED_KEY {
@@ -409,7 +411,7 @@ func updateSwitchUserContent() {
 
 func makeUserTab(username string, id *immclient.UserID) {
 	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
+	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
 
 	doc := js.Global().Get("document")
 	tabBtn := doc.Call("getElementById", "userTab")
@@ -418,8 +420,15 @@ func makeUserTab(username string, id *immclient.UserID) {
 
 	hasRegistrarRoleF := false
 	if id != nil {
-		_, err := id.GetIdentity(url, username)
-		hasRegistrarRoleF = err == nil		
+		idRsp, err := id.GetIdentity(caURL, username)
+		if err == nil {
+			for _, attr := range idRsp.Attributes {
+				if attr.Name == "hf.Registrar.Roles" && attr.Value == "*" {
+					hasRegistrarRoleF = true
+					break
+				}
+			}
+		}
 	}
 
 	userContent := doc.Call("getElementById", "userContent")
@@ -479,22 +488,7 @@ func makeRegisterTab() string {
             </select>
           </div>
         </div>
-        <div class="row">
-          <div class="cert-item"><label for="registerName" id="registerNameLabel">User name</label></div>
-          <div class="cert-input"><input type="text" id="registerName" oninput="inputtedRegisterName()"></div>
-        </div>
-        <div class="row" id="registerHostnameArea" hidden>
-          <div class="cert-item"><label for="registerHost" id="registerHostLabel">Administration host</label></div>
-          <div class="cert-input"><input type="text" id="registerHost" readonly="readonly"></div>
-        </div>
-        <div class="row" id="registerSecretArea">
-          <div class="cert-item"><label for="registerSecret">Secret</label></div>
-          <div class="cert-input"><input type="text" id="registerSecret"></div>
-        </div>
-        <div class="row" id="gencrlBox">
-          <div class="cert-item"><label>CRL</label></div>
-          <div class="cert-input"><label class="checkbox">available<input type="checkbox" id="gencrl"><span class="checkmark"></span> </label></div>
-        </div>
+        <div id="userAttributeArea"></div>
         <div class="row">
           <div class="immDSBtn">
             <button onClick="register()" id="registerButton">Register</button>
@@ -507,6 +501,16 @@ func makeRegisterTab() string {
     </div>`
 
 	return html
+}
+
+func updateRegisterContent() {
+	doc := js.Global().Get("document")
+	
+	userTypeSel := doc.Call("getElementById", "userType")
+	if userTypeSel.IsNull() {
+		return
+	}
+	userTypeSel.Call("onchange")
 }
 
 func makeKeyManageTab() string {
@@ -560,9 +564,10 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
 	doc := js.Global().Get("document")
 	userTypeSel := doc.Call("getElementById", "userType")
 	userType := userTypeSel.Get("value").String()
-	registerName := doc.Call("getElementById", "registerName")
-	hostnameArea := doc.Call("getElementById", "registerHostnameArea")
-	hostnameInput := doc.Call("getElementById", "registerHost")
+	userAttributeArea := doc.Call("getElementById", "userAttributeArea")
+	
+	registerName := ""
+	hostName := ""
 	
 	id, err := websto.GetCurrentID()
 	if err != nil {
@@ -573,22 +578,64 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
 		return nil
 	}
 	
-	hostnameAreaHiddenF := true
-	var hostname string
 	if userType == "StorageGrpAdmin" {
-		hostname = "storage-grp"
-		hostnameAreaHiddenF = false
+		registerName += "storage-grp"
+		hostName += registerName + "." + org
 	}
 	if userType == "StorageAdmin" {
-		hostname = "storage"
-		hostnameAreaHiddenF = false
-	}
-	if ! hostnameAreaHiddenF {
-		registerName.Set("value", hostname)
-		hostnameInput.Set("value", hostname + "." + org)
+		registerName += "storage"
+		hostName += registerName + "." + org
 	}
 
-	hostnameArea.Set("hidden", hostnameAreaHiddenF)
+	html := `
+        <div class="row">
+          <div class="cert-item"><label for="registerName" id="registerNameLabel">User name</label></div>
+          <div class="cert-input">
+            <input type="text" id="registerName" oninput="inputtedRegisterName()" value="`+registerName+`">
+          </div>
+        </div>`
+
+	if hostName == "" { // application user
+        html += `
+            <div class="row" id="authTypeArea">
+              <div class="cert-item"><label for="authType" id="authTypeLable">Authentication type</lable></div>
+              <div class="cert-input">
+                <select id="authType" onchange="selectedAuthType()">
+                  <option value="CA">Certificate authority</option>
+                  <option value="LDAP">LDAP</option>
+                </select>
+              </div>
+            </div>
+            <div class="row" id="registerSecretArea" hidden>
+              <div class="cert-item"><label for="registerSecret">Secret</label></div>
+              <div class="cert-input"><input type="text" id="registerSecret"></div>
+            </div>
+            <div id="authAttrArea" hidden></div>
+            <div class="row" id="gencrlBox">
+              <div class="cert-item"><label>CRL</label></div>
+              <div class="cert-input"><label class="checkbox">available<input type="checkbox" id="gencrl"><span class="checkmark"></span> </label></div>
+            </div>`
+	} else {
+		html += `
+            <div class="row" id="registerHostnameArea">
+              <div class="cert-item"><label for="registerHost" id="registerHostLabel">Administration host</label></div>
+              <div class="cert-input">
+                <input type="text" id="registerHost" readonly="readonly" value="`+hostName+`">
+              </div>
+            </div>
+            <div class="row" id="registerSecretArea">
+              <div class="cert-item"><label for="registerSecret">Secret</label></div>
+              <div class="cert-input"><input type="text" id="registerSecret"></div>
+            </div>`
+	}
+
+	userAttributeArea.Set("innerHTML", html)
+
+	authTypeSel := doc.Call("getElementById", "authType")
+	if ! authTypeSel.IsNull() {
+		authTypeSel.Call("onchange")
+	}
+
 	return nil
 }
 
@@ -613,80 +660,171 @@ func inputtedRegisterName(this js.Value, in []js.Value) interface{} {
 	return nil
 }
 
+func selectedAuthType(this js.Value, in []js.Value) interface{} {
+	doc := js.Global().Get("document")
+	authTypeSel := doc.Call("getElementById", "authType").Get("value").String()
+	regSecretArea := doc.Call("getElementById", "registerSecretArea")
+	regSecretAreaHiddenF := false
+	authAttrArea := doc.Call("getElementById", "authAttrArea")
+	authAttrAreaHiddenF := false
+
+	switch authTypeSel {
+	case "CA":
+		authAttrAreaHiddenF = true
+	case "LDAP":
+		html := `
+          <div class="row" id="LDAPServerArea">
+            <div class="cert-item"><label for="LDAPServer" id="LDAPServerLabel">LDAP server</label></div>
+            <div class="cert-input"><input type="text" id="LDAPServer" value="localhost:389"></div>
+          </div>
+          <div class="row" id="baseDNArea">
+            <div class="cert-item"><label for="baseDN" id="baseDNLabel">Base DN</label></div>
+            <div class="cert-input"><input type="text" id="baseDN" value="ou=PEOPLE,o=,c="></div>
+          </div>
+          <div class="row" id="uidLDAPArea">
+            <div class="cert-item"><label for="uidLDAP" id="uidLDAPLabel">UID</label></div>
+            <div class="cert-input"><input type="text" id="uidLDAP"></div>
+         </div>`
+		authAttrArea.Set("innerHTML", html)
+		regSecretAreaHiddenF = true
+	default:
+		print("unknown authentication type: " + authTypeSel + "\n")
+		return nil
+	}
+
+	regSecretArea.Set("hidden", regSecretAreaHiddenF)
+	authAttrArea.Set("hidden", authAttrAreaHiddenF)
+	return nil
+}
+
 func register(this js.Value, in []js.Value) interface{}{
 	doc := js.Global().Get("document")
-	username := doc.Call("getElementById", "registerName").Get("value").String()
-	hostname := doc.Call("getElementById", "registerHost").Get("value").String()
-	secret := doc.Call("getElementById", "registerSecret").Get("value").String()
+	
 	userType := doc.Call("getElementById", "userType").Get("value").String()
-	genCRLF := doc.Call("getElementById", "gencrl").Get("checked").Bool()
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
-
-	attrList := map[string] *struct{ou string; privilege *immclient.UserPrivilege}{
-		"AppUser": {
-			ou: "client",
-			privilege: &immclient.UserPrivilege{
-				GenCRL: genCRLF,
-			},
-		},
-		"StorageAdmin": {
-			ou: "peer",
-			privilege: &immclient.UserPrivilege{
-				GenCRL: genCRLF,
-				StorageAdmin: hostname,
-			},
-		},
-		"StorageGrpAdmin": {
-			ou: "orderer",
-			privilege: &immclient.UserPrivilege{
-				GenCRL: genCRLF,
-				StorageGrpAdmin: hostname,
-			},
-		},
+	regList := map[string] func() (error){
+		"AppUser": registerAppUser,
+		"StorageAdmin": registerStorage,
+		"StorageGrpAdmin": registerStorageGrp,		
 	}
 
 	go func() {
 		result := doc.Call("getElementById", "registerResult")
-
-		id, err := websto.GetCurrentID()
+		reg, ok := regList[userType]
+		if ! ok {
+			result.Set("innerHTML", "unexpected user type: " + userType)
+			return
+		}
+		
+		err := reg()
 		if err != nil {
 			result.Set("innerHTML", err.Error())
 			return
 		}
-
-		attr, ok := attrList[userType]
-		if ! ok {
-			result.Set("innerHTML", "unexpected user type: " + err.Error())
-			return
-		}
-		retSecret, err := id.Register(username, secret, "client", attr.privilege, url)
-		if err != nil {
-			result.Set("innerHTML", "Register username: " + err.Error())
-			return
-		}
-
-		org, _ := id.GetIssuerOrg()
-		if hostname == (username + "." + org) {
-			retHostSecret, err := id.Register(hostname, retSecret, attr.ou, nil, url)
-			if err != nil {
-				result.Set("innerHTML", "unexpected response from the CA: " + err.Error())
-				id.RemoveIdentity(url, username)
-				return
-			}
-			if retHostSecret != retSecret {
-				result.Set("innerHTML", "unexpected secret")
-				id.RemoveIdentity(url, username)
-				id.RemoveIdentity(url, hostname)
-				return
-			}
-		}
-		
-		doc.Call("getElementById", "registerSecret").Set("value", retSecret)
 		result.Set("innerHTML", "Success")
 	}()
 
 	return nil
+}
+
+func registerAppUser() error {
+	doc := js.Global().Get("document")
+	loc := js.Global().Get("location")
+
+	authType := doc.Call("getElementById", "authType").Get("value").String()
+	id, err := websto.GetCurrentID()
+	if err != nil {
+		return err
+	}
+
+	authParamRaw := []byte{}
+	switch authType {
+	case "CA":
+		caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath		
+		secret := doc.Call("getElementById", "registerSecret").Get("value").String()
+		username := doc.Call("getElementById", "registerName").Get("value").String()
+
+		
+		privilege := &immclient.UserPrivilege{
+			GenCRL: doc.Call("getElementById", "gencrl").Get("checked").Bool(),
+		}
+		retSecret, err := id.Register(username, secret, "client", privilege, caURL)
+		if err == nil {
+			// success
+			doc.Call("getElementById", "registerSecret").Set("value", retSecret)
+		}
+		return err
+	case "LDAP":
+		authParam := &immop.AuthParamLDAP{
+			ServerName: doc.Call("getElementById", "LDAPServer").Get("value").String(),
+			BaseDN: doc.Call("getElementById", "baseDN").Get("value").String(),
+			UID: doc.Call("getElementById", "uidLDAP").Get("value").String(),
+			UserNameOnCA: doc.Call("getElementById", "registerName").Get("value").String(),
+		}
+		
+		authParamRaw, err = proto.Marshal(authParam)
+		if err != nil {
+			return errors.New("failed to marshal authentication parameter: " + err.Error())
+		}
+	default:
+		return errors.New("unknown authentication type: " + authType)
+	}
+
+	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	_, err = id.RegisterUser(authType, authParamRaw, url)
+	return err
+}
+
+func registerStorage() error {
+	doc := js.Global().Get("document")
+	hostname := doc.Call("getElementById", "registerHost").Get("value").String()
+	
+	privilege := &immclient.UserPrivilege{
+		StorageAdmin: hostname,
+	}
+	return registerHost(hostname, "peer", privilege)
+}
+
+func registerStorageGrp() error {
+	doc := js.Global().Get("document")
+	hostname := doc.Call("getElementById", "registerHost").Get("value").String()
+	
+	privilege := &immclient.UserPrivilege{
+		StorageGrpAdmin: hostname,
+	}
+	return registerHost(hostname, "orderer", privilege)
+}
+
+func registerHost(hostname, ou string, privilege *immclient.UserPrivilege) error {
+	doc := js.Global().Get("document")
+	loc := js.Global().Get("location")
+	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
+	
+	username := doc.Call("getElementById", "registerName").Get("value").String()
+	secret := doc.Call("getElementById", "registerSecret").Get("value").String()
+
+	id, err := websto.GetCurrentID()
+	if err != nil {
+		return err
+	}
+	
+	retSecret, err := id.Register(username, secret, "client", privilege, caURL)
+	if err != nil {
+		return errors.New("Register username: " + err.Error())
+	}
+
+	retHostSecret, err := id.Register(hostname, retSecret, ou, nil, caURL)
+	if err != nil {
+		id.RemoveIdentity(caURL, username)
+		return errors.New("unexpected response from the CA: " + err.Error())
+	}
+	if retHostSecret != retSecret {
+		id.RemoveIdentity(caURL, username)
+		id.RemoveIdentity(caURL, hostname)
+		return errors.New("unexpected secret")
+	}
+
+	doc.Call("getElementById", "registerSecret").Set("value", retSecret)
+	return nil // success
 }
 
 func storeKeyPair(prefix string, id *immclient.UserID) {
@@ -695,7 +833,6 @@ func storeKeyPair(prefix string, id *immclient.UserID) {
 
 	certStorage := prefix + "-cert.pem"
 	privStorage := prefix + "_sk"
-	skiStorage := prefix + "_ski"
 	
 	privArray := uint8Array.New(len(id.Priv))
 	js.CopyBytesToJS(privArray, id.Priv)
@@ -704,8 +841,6 @@ func storeKeyPair(prefix string, id *immclient.UserID) {
 	certArray := uint8Array.New(len(id.Cert))
 	js.CopyBytesToJS(certArray, id.Cert)
 	localStorage.Call("setItem", certStorage, certArray)
-	
-	localStorage.Call("setItem", skiStorage, id.SKI)
 }
 
 func makeActionTab() string {
@@ -1807,7 +1942,7 @@ func makeRemoveIdBoxContent(userName string) {
 func removeIdOk(in []js.Value) {
 	gl := js.Global()
 	loc := gl.Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
+	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
 	
 	id, err := websto.GetCurrentID()
 	if err != nil {
@@ -1817,7 +1952,7 @@ func removeIdOk(in []js.Value) {
 	target := in[0].Get("target")
 	userName := target.Get("name").String()
 	print("log: remove userName=" + userName + "\n")
-	id.RemoveIdentity(url, userName)
+	id.RemoveIdentity(caURL, userName)
 	
 	caIDs.execUser = ""
 	updateListUserContent()
@@ -1859,7 +1994,7 @@ func revokeIdOk(in []js.Value) {
 	
 	gl := js.Global()
 	loc := gl.Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
+	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
 	
 	id, err := websto.GetCurrentID()
 	if err != nil {
@@ -1869,7 +2004,7 @@ func revokeIdOk(in []js.Value) {
 	target := in[0].Get("target")
 	userName := target.Get("name").String()
 	print("log: revoke userName=" + userName + "\n")
-	id.RevokeIdentity(url, userName)
+	id.RevokeIdentity(caURL, userName)
 	
 	caIDs.execUser = ""
 	updateListUserContent()
@@ -1916,7 +2051,7 @@ func changeSecretOk(in []js.Value) {
 	gl := js.Global()
 	doc := gl.Get("document")
 	loc := gl.Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()	
+	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String()	+ casrvPath
 
 	target := in[0].Get("target")
 	userName := target.Get("name").String()
@@ -1934,7 +2069,7 @@ func changeSecretOk(in []js.Value) {
 		return
 	}
 	
-	_, err = id.ChangeSecret(url, userName, newSecret)
+	_, err = id.ChangeSecret(caURL, userName, newSecret)
 	if err != nil {
 		result.Set("innerHTML", "failed to change the secret: " + err.Error())
 		return

@@ -39,6 +39,8 @@ type ImmOperationClient interface {
 	RecordLedger(ctx context.Context, in *RecordLedgerReq, opts ...grpc.CallOption) (*Prop, error)
 	ReadLedger(ctx context.Context, in *ReadLedgerReq, opts ...grpc.CallOption) (*Prop, error)
 	QueryBlockByTxID(ctx context.Context, in *QueryBlockByTxIDReq, opts ...grpc.CallOption) (*Prop, error)
+	RegisterUser(ctx context.Context, in *RegisterUserRequest, opts ...grpc.CallOption) (*Reply, error)
+	EnrollUser(ctx context.Context, in *EnrollUserRequest, opts ...grpc.CallOption) (*EnrollUserReply, error)
 }
 
 type immOperationClient struct {
@@ -247,6 +249,24 @@ func (c *immOperationClient) QueryBlockByTxID(ctx context.Context, in *QueryBloc
 	return out, nil
 }
 
+func (c *immOperationClient) RegisterUser(ctx context.Context, in *RegisterUserRequest, opts ...grpc.CallOption) (*Reply, error) {
+	out := new(Reply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/RegisterUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *immOperationClient) EnrollUser(ctx context.Context, in *EnrollUserRequest, opts ...grpc.CallOption) (*EnrollUserReply, error) {
+	out := new(EnrollUserReply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/EnrollUser", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImmOperationServer is the server API for ImmOperation service.
 // All implementations should embed UnimplementedImmOperationServer
 // for forward compatibility
@@ -273,6 +293,8 @@ type ImmOperationServer interface {
 	RecordLedger(context.Context, *RecordLedgerReq) (*Prop, error)
 	ReadLedger(context.Context, *ReadLedgerReq) (*Prop, error)
 	QueryBlockByTxID(context.Context, *QueryBlockByTxIDReq) (*Prop, error)
+	RegisterUser(context.Context, *RegisterUserRequest) (*Reply, error)
+	EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error)
 }
 
 // UnimplementedImmOperationServer should be embedded to have forward compatible implementations.
@@ -344,6 +366,12 @@ func (*UnimplementedImmOperationServer) ReadLedger(context.Context, *ReadLedgerR
 }
 func (*UnimplementedImmOperationServer) QueryBlockByTxID(context.Context, *QueryBlockByTxIDReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryBlockByTxID not implemented")
+}
+func (*UnimplementedImmOperationServer) RegisterUser(context.Context, *RegisterUserRequest) (*Reply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterUser not implemented")
+}
+func (*UnimplementedImmOperationServer) EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnrollUser not implemented")
 }
 
 func RegisterImmOperationServer(s *grpc.Server, srv ImmOperationServer) {
@@ -746,6 +774,42 @@ func _ImmOperation_QueryBlockByTxID_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImmOperation_RegisterUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).RegisterUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/RegisterUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).RegisterUser(ctx, req.(*RegisterUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImmOperation_EnrollUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnrollUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).EnrollUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/EnrollUser",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).EnrollUser(ctx, req.(*EnrollUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "immop.ImmOperation",
 	HandlerType: (*ImmOperationServer)(nil),
@@ -837,6 +901,14 @@ var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "QueryBlockByTxID",
 			Handler:    _ImmOperation_QueryBlockByTxID_Handler,
+		},
+		{
+			MethodName: "RegisterUser",
+			Handler:    _ImmOperation_RegisterUser_Handler,
+		},
+		{
+			MethodName: "EnrollUser",
+			Handler:    _ImmOperation_EnrollUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

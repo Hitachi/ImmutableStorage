@@ -27,12 +27,9 @@ import (
 	"encoding/pem"
 	"encoding/json"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/asn1"
 	"net/http"
 	"bytes"
-
-	"github.com/mitchellh/mapstructure"
 
 	"math/big"
 
@@ -226,6 +223,35 @@ type IdentityInfo struct {
 	MaxEnrollments int         `json:"max_enrollments" mapstructure:"max_enrollments"`
 }
 
+func (id *IdentityInfo) GetUserType() string {
+	userTypeStr := map[string] string{
+		"client": "User",
+		"peer": "Storage service",
+		"orderer": "Storage group service",
+	}
+
+	userType, ok := userTypeStr[id.Type]
+	if !ok {
+		return "Unknown"
+	}
+
+	if userType != "User" {
+		return userType
+	}
+
+	if strings.HasPrefix(id.Affiliation, "StorageGrpAdmin:")  {
+		return "Storage group administrator"
+	}
+	
+	for _, attr := range id.Attributes {
+		if strings.HasPrefix(attr.Name, "StorageAdmin") {
+			return "Storage administrator"
+		}
+	}
+
+	return "Application user"	
+}
+
 // ModifyIdentityRequest represents the request to modify an existing identity on the
 // fabric-ca-server
 type ModifyIdentityRequest struct {
@@ -238,6 +264,12 @@ type ModifyIdentityRequest struct {
 	CAName         string      `json:"caname,omitempty" skip:"true"`
 }
 
+
+type UserID struct {
+	Name string
+	Priv, Cert []byte
+	Client *http.Client
+}
 
 type InstanceValue struct {
 	Format  string
@@ -252,32 +284,46 @@ const (
 	GrpAdmin = "StorageGrpAdmin"
 )
 
-func EnrollUser(username string, validityPeriod time.Duration, enSecret, urlBase string) (*UserID, error) {
+var client = &http.Client{}
+
+func GetDefaultHttpClient() (*http.Client) {
+	return client
+}
+
+func CreateCSR(username string) (privPem, csrPem []byte, retErr error) {
 	// generate key pair
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, errors.New("Failed to generate a private key: " + err.Error())
+		retErr = errors.New("Failed to generate a private key: " + err.Error())
+		return
 	}
 	privAsn1, err := x509.MarshalPKCS8PrivateKey(privKey)
 	if err != nil {
-		return nil, errors.New("Failed to marshal an ecdsa private key into ASN.1 DEF format: " + err.Error() )
+		retErr = errors.New("Failed to marshal an ecdsa private key into ASN.1 DEF format: " + err.Error() )
+		return
 	}
 	
-	privPem := pem.EncodeToMemory( &pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1} )
-
-	ski := sha256.Sum256( elliptic.Marshal(privKey.Curve, privKey.X,  privKey.Y) )
-	skiStr := hex.EncodeToString(ski[:])
-
+	privPem = pem.EncodeToMemory( &pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1} )
 
 	// create CSR
 	subj := &pkix.Name{CommonName: username}
 	csr, err := x509.CreateCertificateRequest(rand.Reader,
 		&x509.CertificateRequest{Subject: *subj, SignatureAlgorithm: x509.ECDSAWithSHA256}, privKey)
 	if err != nil {
-		return nil, errors.New("failed to create CSR: " + err.Error())
+		retErr = errors.New("failed to create CSR: " + err.Error())
+		return
 	}
-	csrPem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr,})
+	csrPem = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr,})
 
+	return
+}
+
+func EnrollUser(username string, validityPeriod time.Duration, enSecret, urlBase string) (*UserID, error) {
+	privPem, csrPem, err := CreateCSR(username)
+	if err != nil {
+		return nil, err
+	}
+	
 	nowT := time.Now().UTC()
 	enrollReq := &EnrollmentRequestNet{
 		SignRequest: SignRequest{
@@ -292,35 +338,27 @@ func EnrollUser(username string, validityPeriod time.Duration, enSecret, urlBase
 		return nil, errors.New("could not create a request: " + err.Error())
 	}
 
-
-	csrUrl := urlBase + "/ca/enroll"
-	certSignReq, err := http.NewRequest("POST", csrUrl, bytes.NewReader(reqData))
+	conn, err := grpc.Dial(urlBase, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true,})))
 	if err != nil {
-		return nil, errors.New("could not create a POST request: " + err.Error())
+		return nil, errors.New("failed to connect to a server: " + err.Error())
 	}
-	certSignReq.SetBasicAuth(username, string(enSecret))
+	defer conn.Close()
 
-	reply, err := sendReqCA(certSignReq)
-	if err != nil {
-		return nil, err
-	}
-
-	csrRsp := &EnrollmentResponseNet{}
-	mapstructure.Decode(reply, csrRsp)
-
-	certRaw, err := base64.StdEncoding.DecodeString(csrRsp.Cert)
-	if err != nil {
-		return nil, errors.New("unexpected certificate format: " + err.Error())
+	cli := immop.NewImmOperationClient(conn)
+	req := &immop.EnrollUserRequest{
+		EnrollReq: reqData,
+		Secret: enSecret,
 	}
 
-	return &UserID{Name: username, Priv: privPem, Cert: certRaw, SKI: skiStr}, nil
+	reply, err := cli.EnrollUser(context.Background(), req)
+	if err != nil {
+		return nil, errors.New("failed to enroll a user: " + err.Error())
+	}
+	
+	return &UserID{Name: username, Priv: privPem, Cert: reply.Cert, }, nil
 }
 
-
-func sendReqCA(req *http.Request) (result interface{}, retErr error){
-//	tr := &http.Transport{TLSClientConfig: nil}
-//	client := &http.Client{Transport: tr}
-	client := &http.Client{}
+func SendReqCA(req *http.Request, reply *Response) (retErr error){
 	resp, err := client.Do(req)
 	if err != nil {
 		retErr = fmt.Errorf("failed to request: " + err.Error())
@@ -343,16 +381,13 @@ func sendReqCA(req *http.Request) (result interface{}, retErr error){
 		return
 	}
 
-	//	fmt.Printf("body: \n%s\n", hex.Dump(respBody))
-	body := &Response{}
-	err = json.Unmarshal(respBody, body)
+	err = json.Unmarshal(respBody, reply)
 	if err != nil {
 		retErr = errors.New("unexpected body: " + err.Error())
-		return
 	}
-	if len(body.Errors) > 0 {
+	if len(reply.Errors) > 0 {
 		var retStr string
-		for _, errMsg := range body.Errors {
+		for _, errMsg := range reply.Errors {
 			retStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x\n", errMsg.Code)
 		}
 		
@@ -360,8 +395,7 @@ func sendReqCA(req *http.Request) (result interface{}, retErr error){
 		return
 	}
 
-	result = body.Result
-	return
+	return // success
 }
 
 
@@ -369,7 +403,7 @@ type ECDSASignature struct {
         R, S *big.Int
 }
 
-func (id *UserID) genToken(req_data []byte, req *http.Request) (string, error) {
+func (id *UserID) genToken(req_data []byte, req *http.Request, uri string) (string, error) {
 	privData, _ := pem.Decode(id.Priv)
 	if x509.IsEncryptedPEMBlock(privData) {
 		return "", errors.New("not support encrypted PEM")
@@ -390,9 +424,12 @@ func (id *UserID) genToken(req_data []byte, req *http.Request) (string, error) {
 	certBase64 := base64.StdEncoding.EncodeToString(id.Cert)
 	payload := reqBase64 + "." + certBase64
 	if req != nil {
-		//	print("log: method=" + req.Method + " uri=" + req.URL.RequestURI() + "\n")
-		uri := strings.TrimPrefix(req.URL.RequestURI(), "/ca")
-		uriBase64 := base64.StdEncoding.EncodeToString([]byte(uri))
+		queryStr := strings.SplitN(req.URL.RequestURI(), uri, 2)
+		if len(queryStr) != 2 {
+			return "", errors.New("invalid URI")
+		}
+		uriSrc := uri + queryStr[1]
+		uriBase64 := base64.StdEncoding.EncodeToString([]byte(uriSrc))
 		payload = req.Method + "." + uriBase64 + "." + payload
 	}
 	digest := sha256.Sum256( []byte(payload) )
@@ -413,8 +450,8 @@ func (id *UserID) genToken(req_data []byte, req *http.Request) (string, error) {
 	return token, nil
 }
 
-func (id *UserID) addToken(req_data []byte, req *http.Request) error {
-	token, err := id.genToken(req_data, req)
+func (id *UserID) AddToken(req_data []byte, req *http.Request, uri string) error {
+	token, err := id.genToken(req_data, req, uri)
 	if err != nil {
 		return err
 	}
@@ -423,12 +460,20 @@ func (id *UserID) addToken(req_data []byte, req *http.Request) error {
 	return nil
 }
 
+// GetAllIDsResponse is the response from the GetAllIdentities call
+type GetAllIDsResponse struct {
+        Identities []IdentityInfo `json:"identities"`
+        CAName     string         `json:"caname,omitempty"`
+}
+
 // Attribute is a name and value pair
 type Attribute struct {
         Name  string `json:"name"`
         Value string `json:"value"`
         ECert bool   `json:"ecert,omitempty"`
 }
+
+
 
 // IdentityResponse is the response from the any add/modify/remove identity call
 type IdentityResponse struct {
@@ -441,47 +486,26 @@ type IdentityResponse struct {
         CAName         string      `json:"caname,omitempty"`
 }
 
-
-
-type UserID struct {
-	Name string
-	Priv, Cert []byte
-	SKI string
-}
-
-func (id *UserID) GetAllIdentities(urlBase string) ([]*IdentityResponse, error) {
-	url := urlBase + "/ca/identities"
+func (id *UserID) GetAllIdentities(urlBase string) ([]IdentityInfo, error) {
+	uri := "/identities"
+	url := urlBase + uri
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, errors.New("failed to create a request for getting identities: " + err.Error())
 	}
 
-	if err = id.addToken(nil, req); err != nil {
+	if err = id.AddToken(nil, req, uri); err != nil {
 		return nil, err
 	}
 
-	reply, err := sendReqCA(req)
+	ids := &GetAllIDsResponse{}
+	rsp := &Response{Result: ids}
+	err = SendReqCA(req, rsp)
 	if err != nil {
 		return nil, err
 	}
-
-	idsBuf, ok := reply.(map[string]interface {})
-	if !ok {
-		return nil, errors.New("unexpected reply")
-	}
-	idsReply, ok := idsBuf["identities"]
-	if !ok {
-		return nil, errors.New("unexpected reply")
-	}
-
-	var users []*IdentityResponse
-	for _, userRaw := range idsReply.([]interface{}) {
-		user := &IdentityResponse{}
-		mapstructure.Decode(userRaw, user)
-		users = append(users, user)
-	}
-	
-	return users, nil
+        
+	return ids.Identities, nil
 }
 
 
@@ -526,59 +550,54 @@ type UserPrivilege struct {
 }
 
 func (id *UserID) GetAllAffiliations(urlBase string) (*AffiliationResponse, error) {
-	url := urlBase + "/ca/affiliations"
+	uri := "/affiliations"
+	url := urlBase + uri
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, errors.New("failed to create a request for getting all affiliations: " + err.Error())
 	}
 
-	err = id.addToken(nil, req)
+	err = id.AddToken(nil, req, uri)
 	if err != nil {
 		return nil, err
 	}
 
-	reply, err := sendReqCA(req)
-	if err != nil {
-		return nil, errors.New("failed to send a request to CA: " + err.Error())
-	}
-	
 	affiliations := &AffiliationResponse{}
-	err = mapstructure.Decode(reply, affiliations)
+	rsp := &Response{Result: affiliations}
+	err = SendReqCA(req, rsp)
 	if err != nil {
-		return nil, errors.New("unexpected response: " + err.Error())
+		return nil, fmt.Errorf("failed to send a request to CA: " + err.Error())
 	}
 
 	return affiliations, nil
 }
 
 func (id *UserID) GetAffiliation(urlBase, affiliation string) (*AffiliationResponse, error) {
-	url := urlBase + "/ca/affiliations/" + affiliation
+	uri := "/affiliations/" + affiliation
+	url := urlBase + uri
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, errors.New("failed to create a request for getting affiliation: " + err.Error())
 	}
 
-	err = id.addToken(nil, req)
+	err = id.AddToken(nil, req, uri)
 	if err != nil {
 		return nil, err
 	}
 
-	reply, err := sendReqCA(req)
+	info := &AffiliationResponse{}
+	rsp := &Response{Result: info}
+	err = SendReqCA(req, rsp)
 	if err != nil {
 		return nil, errors.New("failed to send a request to CA: " + err.Error())
-	}
-	
-	info := &AffiliationResponse{}
-	err = mapstructure.Decode(reply, info)
-	if err != nil {
-		return nil, errors.New("unexpected response: " + err.Error())
 	}
 
 	return info, nil
 }
 
 func (id *UserID) AddAffiliation(urlBase, affiliation string) error {
-	url := urlBase + "/ca/affiliations"	
+	uri := "/affiliations"	
+	url := urlBase + uri
 	req := &AddAffiliationRequest{Name: affiliation}
 	
 	reqData, err := json.Marshal(req)
@@ -592,39 +611,36 @@ func (id *UserID) AddAffiliation(urlBase, affiliation string) error {
 	}
 	httpReq.URL.RawQuery = "force=false"
 
-	err = id.addToken(reqData, httpReq)
-	if err != nil {
-		return err
-	}
-
-	reply, err := sendReqCA(httpReq)
+	err = id.AddToken(reqData, httpReq, uri)
 	if err != nil {
 		return err
 	}
 
 	affiliationRsp := &AffiliationResponse{}
-	err = mapstructure.Decode(reply, affiliationRsp)
+	rsp := &Response{Result: affiliationRsp}
+	err = SendReqCA(httpReq, rsp)
 	if err != nil {
-		return errors.New("unexpected response: " + err.Error())
+		return err
 	}
-
+	
 	return nil
 }
 
 func (id *UserID) RemoveAffiliation(urlBase, affiliation string) error {
-	url := urlBase + "/ca/affiliations/" + affiliation
+	uri := "/affiliations/" + affiliation
+	url := urlBase + uri
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return errors.New("failed to create a DELETE request: " + err.Error())
 	}
 	req.URL.RawQuery = "force=true"
 
-	err = id.addToken(nil, req)
+	err = id.AddToken(nil, req, uri)
 	if err != nil {
 		return err
 	}
 
-	_, err = sendReqCA(req)
+	err = SendReqCA(req, &Response{})
 	if err != nil {
 		return err
 	}
@@ -691,26 +707,23 @@ func (id *UserID) Register(username, secret, ouType string, privilege *UserPrivi
 		return "", errors.New("could not create a request: " + err.Error())
 	}
 
-	url := urlBase + "/ca/register"
+	uri := "/register"
+	url := urlBase + uri
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData) )
 	if err != nil {
 		return "", errors.New("could not create a POST request: " + err.Error())
 	}
 
-	err = id.addToken(reqData, httpReq)
+	err = id.AddToken(reqData, httpReq, uri)
 	if err != nil {
 		return "", err
 	}
 
-	reply, err := sendReqCA(httpReq)
+	regReply := &RegistrationResponse{}     
+	rsp := &Response{Result: regReply}
+	err = SendReqCA(httpReq, rsp)
 	if err != nil {
 		return "", err
-	}
-
-	regReply := &RegistrationResponse{}
-	err = mapstructure.Decode(reply, regReply)
-	if err != nil {
-		return "", errors.New("unexpected response: " + err.Error())
 	}
 	
 	return regReply.Secret, err
@@ -810,7 +823,7 @@ func (id *UserID) ImportService(serviceData []byte, url string) (err error) {
 
 	cli := immop.NewImmOperationClient(conn)
 
-	token, err := id.genToken(nil, nil)
+	token, err := id.genToken(nil, nil, "")
 	if err != nil {
 		return
 	}
@@ -837,7 +850,7 @@ func (id *UserID) RemoveServiceFromCh(hostName, portName, url string) (err error
 
 	cli := immop.NewImmOperationClient(conn)
 
-	token, err := id.genToken(nil, nil)
+	token, err := id.genToken(nil, nil, "")
 	if err != nil {
 		return
 	}
@@ -885,7 +898,7 @@ func (id *UserID) CreateChannel(channelID, url string) (err error) {
 
 	cli := immop.NewImmOperationClient(conn)
 
-	token, err := id.genToken(nil, nil)
+	token, err := id.genToken(nil, nil, "")
 	if err != nil {
 		return
 	}
@@ -1475,44 +1488,42 @@ func (id *UserID) HasStorageGrpAdmin() bool {
 }
 
 func (id *UserID) GetIdentity(urlBase, userName string) (*IdentityResponse, error) {
-	url := urlBase + "/ca/identities/" + userName
+	uri := "/identities/" + userName
+	url := urlBase + uri
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, errors.New("failed to create a request for getting ID: " + err.Error())
 	}
 
-	err = id.addToken(nil, req)
+	err = id.AddToken(nil, req, uri)
 	if err != nil {
 		return nil, err
 	}
-
-	reply, err := sendReqCA(req)
-	if err != nil {
-		return nil, errors.New("failed to send a request to CA: " + err.Error())
-	}
 	
 	user := &IdentityResponse{}
-	err = mapstructure.Decode(reply, user)
+	rsp := &Response{Result: user}
+	err = SendReqCA(req, rsp)
 	if err != nil {
-		return nil, errors.New("unexpected response: " + err.Error())
+		return nil, errors.New("failed to send a request to CA: " + err.Error())
 	}
 
 	return user, nil
 }
 
 func (id *UserID) RemoveIdentity(urlBase, userName string) error {
-	url := urlBase + "/ca/identities/" + userName
+	uri := "/identities/" + userName
+	url := urlBase + uri
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return errors.New("failed to remove " + userName + ": " + err.Error())
 	}
 
-	err = id.addToken(nil, req)
+	err = id.AddToken(nil, req, uri)
 	if err != nil {
 		return err
 	}
 
-	_, err = sendReqCA(req)
+	err = SendReqCA(req, &Response{})
 	if err != nil {
 		return err
 	}
@@ -1521,7 +1532,8 @@ func (id *UserID) RemoveIdentity(urlBase, userName string) error {
 }
 
 func (id *UserID) RevokeIdentity(urlBase, userName string) error {
-	url := urlBase + "/ca/revoke"
+	uri := "/revoke"
+	url := urlBase + uri
 
 	reqData, err := json.Marshal(&RevocationRequest{Name: userName})
 	if err != nil {
@@ -1533,12 +1545,12 @@ func (id *UserID) RevokeIdentity(urlBase, userName string) error {
 		return errors.New("could not create a request")
 	}
 
-	err = id.addToken(reqData, httpReq)
+	err = id.AddToken(reqData, httpReq, uri)
 	if err != nil {
 		return err
 	}
 
-	_, err = sendReqCA(httpReq)
+	err = SendReqCA(httpReq, &Response{})
 	if err != nil {
 		return err
 	}
@@ -1560,7 +1572,8 @@ func RandStr(num int) string {
 }
 
 func (id *UserID) ChangeSecret(urlBase, userName, secret string) (string, error) {
-	url := urlBase + "/ca/identities/" + userName
+	uri := "/identities/" + userName
+	url := urlBase + uri
 
 	if secret == "" {
 		secret = RandStr(8)
@@ -1575,15 +1588,41 @@ func (id *UserID) ChangeSecret(urlBase, userName, secret string) (string, error)
 		return "", errors.New("could not create a request")
 	}
 
-	err = id.addToken(reqData, httpReq)
+	err = id.AddToken(reqData, httpReq, uri)
 	if err != nil {
 		return "", err
 	}
 
-	_, err = sendReqCA(httpReq)
+	err = SendReqCA(httpReq, &Response{})
 	if err != nil {
 		return "", err
 	}
 	
 	return secret, nil
+}
+
+func (id *UserID) RegisterUser(authType string, authParam []byte, url string) (secret string, retErr error) {
+	conn, err := id.dial(url)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	cli := immop.NewImmOperationClient(conn)
+	
+	req := &immop.RegisterUserRequest{
+		AuthType: authType,
+		AuthParam: authParam,
+	}
+	req.Cred, err = id.signMsg("RegisterUser", req)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = cli.RegisterUser(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+
+	return "", nil // success
 }
