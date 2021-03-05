@@ -34,6 +34,7 @@ import (
 	"io"
 	"context"
 	"strings"
+	"time"
 	
 	"immutil"
 )
@@ -83,6 +84,7 @@ func createDinDService(podSel string) (serviceName string, retErr error) {
 	}
 	
 	serviceName = resultSvc.GetObjectMeta().GetName()
+	time.Sleep(2*time.Second)
 	return
 }
 
