@@ -49,15 +49,14 @@ func GetIDFromStorage(username string) (*immclient.UserID, error) {
 
 	privStorage := storage.Call("getItem", username + "_sk")
 	certStorage := storage.Call("getItem", username + "-cert.pem")
-	skiStorage := storage.Call("getItem", username + "_ski")
-	if privStorage.IsNull() || certStorage.IsNull() || skiStorage.IsNull() {
+	if privStorage.IsNull() || certStorage.IsNull() {
 		return nil, errors.New("not found user")
 	}
 
 	priv := ConvToArray(privStorage.String())
 	cert := ConvToArray(certStorage.String())
 
-	return &immclient.UserID{Name: username, Priv: priv, Cert: cert, SKI: skiStorage.String()}, nil
+	return &immclient.UserID{Name: username, Priv: priv, Cert: cert}, nil
 }
 
 func GetCurrentUsername() (string, error) {

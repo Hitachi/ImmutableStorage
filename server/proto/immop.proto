@@ -141,6 +141,29 @@ message QueryBlockByTxIDReq {
         string StorageGroup = 3;
 }
 
+message RegisterUserRequest {
+        Credential Cred = 1;
+        string AuthType = 2;
+        bytes AuthParam = 3;
+}
+
+message AuthParamLDAP {
+        string ServerName = 1;
+        string BaseDN = 2;
+        string UID = 3;
+        string UserNameOnCA = 4;
+        string Password = 5;
+}
+
+message EnrollUserRequest {
+        bytes EnrollReq = 1;
+        string Secret = 2;
+}
+
+message EnrollUserReply {
+        bytes Cert = 1;
+}
+
 service ImmOperation {
         rpc CreateService(CreateServiceRequest) returns (Reply) {}
         rpc ExportService(ExportServiceRequest) returns (ExportServiceReply) {}
@@ -164,4 +187,6 @@ service ImmOperation {
         rpc RecordLedger(RecordLedgerReq) returns (Prop) {}
         rpc ReadLedger(ReadLedgerReq) returns (Prop) {}
         rpc QueryBlockByTxID(QueryBlockByTxIDReq) returns (Prop) {}
+        rpc RegisterUser(RegisterUserRequest) returns (Reply) {}
+        rpc EnrollUser(EnrollUserRequest) returns (EnrollUserReply) {}
 }

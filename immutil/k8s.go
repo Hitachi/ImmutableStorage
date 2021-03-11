@@ -46,6 +46,8 @@ const (
 	NotReady = "NotReady"
 	Ready = "Ready"
 	NotExist = "NotExist"
+
+	ERR_NOT_FOUND_SECRET = "not found secret:"
 )
 
 func IsInKube() bool {
@@ -297,49 +299,39 @@ func k8sGetKeysFromSecret(secretName string, keyPEMs map[string] *[]byte) (retEr
 	return
 }
 
-func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
-	secretName = subj.CommonName
+func k8sCheckKeyPair(secretName string) (validKey bool, retErr error) {
+	privPem, pubPem, err := K8sGetKeyPair(secretName)	
+	if err == nil {
+		// check key-pair
+		err := CheckKeyPair(privPem, pubPem)
+		if err == nil {
+			validKey = true
+			return // success
+		}
+	}
+
+	if strings.HasPrefix(err.Error(), ERR_NOT_FOUND_SECRET) {
+		validKey = false
+		return // not found secret
+	}
 	
 	secretsClient, retErr := K8sGetSecretsClient()
 	if retErr != nil {
-		return
+		return // error
 	}
 
-	secret, retErr := secretsClient.Get(context.TODO(), secretName, metav1.GetOptions{})
-	if retErr == nil {
-		// This secret already exists.
-		// check key-pair
-		for {
-			privPem, ok := secret.Data["key"]
-			if !ok {
-				break // recreate keys
-			}
-			pubPem, ok := secret.Data["cert"]
-			if !ok {
-				break // recreate keys
-			}
-			err := CheckKeyPair(privPem, pubPem)
-			if err != nil {
-				break
-			}
-			
-			return // success
-		}
+	// This secret already exists.
+	// delete a key pair		
+	deletePolicy := metav1.DeletePropagationForeground
+	retErr = secretsClient.Delete(context.TODO(), secretName, metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,})
+	return
+}
 
-		deletePolicy := metav1.DeletePropagationForeground
-		err := secretsClient.Delete(context.TODO(), secretName, metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,})
-		if err != nil {
-			retErr = err
-			return
-		}
-	}
-
-	// create key pair on a secret
-	privPem, pubPem, _, err := GenerateKeyPair(subj, nil)
-	if err != nil {
-		retErr = err
-		return
+func k8sStoreKeyPairOnSecret(privPem, certPem []byte, secretName string) (retErr error) {
+	secretsClient, retErr := K8sGetSecretsClient()
+	if retErr != nil {
+		return // error
 	}
 	
 	secretKeys := &corev1.Secret{
@@ -348,12 +340,50 @@ func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
 		},
 		Data: map[string][]byte{
 			"key": privPem,
-			"cert": pubPem,
+			"cert": certPem,
 		},	
 	}
 	
 	_, retErr = secretsClient.Create(context.TODO(), secretKeys, metav1.CreateOptions{})
 	return
+}
+
+func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
+	secretName = subj.CommonName
+
+	validKey, retErr := k8sCheckKeyPair(secretName)
+	if validKey || retErr != nil {
+		return
+	}
+
+	privPem, pubPem, _, retErr := GenerateKeyPair(subj, nil)
+	if retErr != nil {
+		return
+	}
+	
+	retErr = k8sStoreKeyPairOnSecret(privPem, pubPem, secretName)
+	return
+}
+
+func K8sCreateKeyPairWithSecretName(subj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []string, secretName string) (retErr error) {
+	validKey, retErr := k8sCheckKeyPair(secretName)
+	if validKey || retErr != nil {
+		return
+	}
+
+	privPem, pubPem, retErr := CreateCertificate(subj, caPrivPem, caCertPem, dnsNames)
+	if retErr != nil {
+		return
+	}
+
+	retErr = k8sStoreKeyPairOnSecret(privPem, pubPem, secretName)
+	return	
+}
+
+func K8sCreateKeyPair(subj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []string) (secretName string, retErr error) {
+	secretName = subj.CommonName
+	retErr = K8sCreateKeyPairWithSecretName(subj, caPrivPem, caCertPem, dnsNames, secretName)
+	return	
 }
 
 func K8sGetKeyPair(secretName string) (privPem, certPem []byte, retErr error) {
@@ -364,7 +394,7 @@ func K8sGetKeyPair(secretName string) (privPem, certPem []byte, retErr error) {
 
 	secret, err := cli.Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
-		retErr = fmt.Errorf("not found secret: %s", err)
+		retErr = fmt.Errorf(ERR_NOT_FOUND_SECRET + " %s", err)
 		return
 	}
 

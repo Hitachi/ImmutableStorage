@@ -20,6 +20,7 @@ require (
 	github.com/docker/docker v1.4.2-0.20191101170500-ac7306503d23
 	github.com/docker/go-connections v0.4.0
 	github.com/fsouza/go-dockerclient v1.3.6 // indirect
+	github.com/go-ldap/ldap/v3 v3.2.4
 	github.com/golang/protobuf v1.4.1
 	github.com/gorilla/mux v1.7.4 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
@@ -40,6 +41,7 @@ require (
 	google.golang.org/grpc v1.27.1
 	google.golang.org/protobuf v1.24.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0
+	immclient v0.0.0-00010101000000-000000000000
 	immop v0.0.0-00010101000000-000000000000
 	immutil v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.18.3
@@ -48,3 +50,5 @@ require (
 )
 
 replace github.com/docker/docker => github.com/docker/engine v17.12.0-ce-rc1.0.20200618181300-9dc6525e6118+incompatible
+
+replace immclient => ../web/immclient
