@@ -3891,9 +3891,7 @@ func (s *server) registerLDAPUser(tmpPriv, tmpCert []byte, req *immop.RegisterUs
 */
 
 	// register an LDAP user to the CA DB
-	affiliation := strings.SplitN(authParam.ServerName, ":", 2)[0]
-	affiliation = "FedLDAP" + ":" + strings.ReplaceAll(affiliation, ".", ":")
-	affiliation += ":" + authParam.UserNameOnCA
+	affiliation := "FedLDAP" + ":" + strings.ReplaceAll(authParam.UserNameOnCA, ".", ":")
 	regReq := &immclient.RegistrationRequest{
 		Name: authParam.UserNameOnCA,
 		Attributes: []immclient.Attribute{
