@@ -84,6 +84,7 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	startCaCmd += " --ca.certfile "+caCert + " --ca.keyfile "+caPrv
 	startCaCmd += " -b "+caAdminName+":"+caAdminPass + " -d --cfg.identities.allowremove"
 	startCaCmd += " --cfg.affiliations.allowremove"
+	configFile := caDataDir+"/fabric-ca-server-config.yaml"
 
 	workVol, err := immutil.K8sGetOrgWorkVol(org)
 	if err != nil {
@@ -177,6 +178,13 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 									ContainerPort: 7054,
 								},
 							},
+							StartupProbe: &corev1.Probe{
+								Handler: corev1.Handler{
+									Exec: &corev1.ExecAction{
+										Command: []string{"test", "-f", configFile},
+									},
+								},
+							},						
 						},
 					},
 
