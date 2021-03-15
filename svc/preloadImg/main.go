@@ -24,7 +24,7 @@ import (
 	"github.com/containerd/containerd/remotes/docker"	
 	//	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"net/http"
-	
+	"time"
 	"fmt"
 	"os"
 	"context"
@@ -37,7 +37,7 @@ const (
 )
 
 func Main(args []string) {
-	var findImgList = map[string] *struct{ present bool; prefix string}{
+	var findImgList = map[string] *struct{present bool; prefix string}{
 		immutil.CaImg: { false, DOCKER_IO_REPO },
 		immutil.OrdererImg: { false, DOCKER_IO_REPO },
 		immutil.CouchDBImg: { false, DOCKER_IO_REPO },
@@ -147,23 +147,17 @@ func Main(args []string) {
 
 	imgStore := cntCli.ImageService()
 	ctx := namespaces.WithNamespace(context.Background(), "k8s.io")
-	
-	for imgName, attr := range findImgList {
-		if attr.present == true {
-			continue
-		}
 
-		// This image does not exist in the registry
+	var pullPushImage = func(imgPrefix, imgName string) error {
 		var cntImg containerd.Image
-		img, err := imgStore.Get(ctx, attr.prefix+imgName)
+		img, err := imgStore.Get(ctx, imgPrefix+imgName)
 		if err != nil {
 			// This image does not exist in containerd
 			fmt.Printf("pull %s\n", imgName)
-
-			cntImg, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatform("linux/amd64"), containerd.WithPullUnpack, dockerIoResolver)
+			
+			cntImg, err = cntCli.Pull(ctx, imgPrefix+imgName, containerd.WithPlatform("linux/amd64"), containerd.WithPullUnpack, dockerIoResolver)
 			if err != nil {
-				fmt.Printf("failed to pull %s image: %s\n", imgName, err)
-				os.Exit(6)
+				return fmt.Errorf("failed to pull %s image: %s", imgName, err)
 			}
 			img = cntImg.Metadata()
 		} else {
@@ -172,15 +166,14 @@ func Main(args []string) {
 		
 		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err == nil {
-			continue // success
+			findImgList[imgName].present = true
+			return nil // success
 		}
-
+			
 		// retry
-
 		plats, err := images.Platforms(ctx, cntImg.ContentStore(), cntImg.Target())
 		if err != nil {
-			fmt.Printf("failed to get platforms: %s\n", err)
-			os.Exit(10)
+			return fmt.Errorf("failed to get platforms: %s", err)
 		}
 		
 		fmt.Printf("image: %s\n", imgName)
@@ -190,19 +183,45 @@ func Main(args []string) {
 			err = i.Unpack(ctx, "")
 			if err != nil {
 				fmt.Printf("failed to unpack image: %s\n", err)
-
-				_, err = cntCli.Pull(ctx, attr.prefix+imgName, containerd.WithPlatformMatcher(platforms.Only(plat)), containerd.WithPullUnpack, dockerIoResolver)
+				
+				_, err = cntCli.Pull(ctx, imgPrefix+imgName, containerd.WithPlatformMatcher(platforms.Only(plat)), containerd.WithPullUnpack, dockerIoResolver)
 				if err != nil {
-					fmt.Printf("failed to pull %s\n", imgName)
-					os.Exit(11)
+					return fmt.Errorf("failed to pull %s", imgName)
 				}
 			}
 		}
-		
+			
 		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err != nil {
-			fmt.Printf("failed to push %s to the registry: %s\n", imgName, err)
-			os.Exit(12)
+			return fmt.Errorf("failed to push %s to the registry: %s", imgName, err)
 		}
+		
+		findImgList[imgName].present = true // success
+		return nil // success
+	}
+
+	for i := 0; i < 5; i++ {
+		for imgName, attr := range findImgList {
+			if attr.present == true {
+				continue
+			}
+
+			// This image does not exist in the registry			
+			err = pullPushImage(attr.prefix, imgName)
+			if err != nil {
+				fmt.Printf("%s\n", err)
+			}
+		}
+		
+		if err == nil {
+			return // success
+		}
+
+		time.Sleep(5*time.Second) // sleep 5s
+		err = nil // retry
+	}
+
+	if err != nil {
+		os.Exit(5) // give up
 	}
 }
