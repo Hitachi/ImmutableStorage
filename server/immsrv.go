@@ -33,7 +33,6 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"fmt"
-	"net/http"
 
 	"math"
 	"math/big"
@@ -41,7 +40,6 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/base64"
 	"crypto/ecdsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -77,8 +75,6 @@ import (
 	"sync/atomic"
 	"sync"
 	"gopkg.in/yaml.v2"
-
-	ldap "github.com/go-ldap/ldap/v3"
 )
 
 const (
@@ -127,6 +123,11 @@ const (
 	grpAdminOU = "StorageGrpAdmin"
 
 	storageGrpPort = 7050
+
+	cfgMapFedUser = "-feduser"
+	cfgMapFedGrp = "-fedgrp"
+
+	defaultCAPortStr = ":7054"
 )
 
 type signerState struct {
@@ -3725,8 +3726,8 @@ func (s *server) ReadLedger(ctx context.Context, req *immop.ReadLedgerReq) (repl
 		}
 
 		signer.rsp = propRsp.Response.Payload
-		fmt.Printf("log: ReadLedger: payload:\n%s\n", hex.Dump(signer.rsp))
-		fmt.Printf("log: ReadLedger: reponse.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
+		//fmt.Printf("log: ReadLedger: payload:\n%s\n", hex.Dump(signer.rsp))
+		//fmt.Printf("log: ReadLedger: reponse.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
 		signer.err <- nil
 		return
 	}()
@@ -3811,8 +3812,8 @@ func (s *server) QueryBlockByTxID(ctx context.Context, req *immop.QueryBlockByTx
 		}
 
 		signer.rsp = propRsp.Response.Payload
-		fmt.Printf("log: QueryBlockByTxID: payload:\n%s\n", hex.Dump(signer.rsp))
-		fmt.Printf("log: QueryBlockByTxID: reponse.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
+		//fmt.Printf("log: QueryBlockByTxID: payload:\n%s\n", hex.Dump(signer.rsp))
+		//fmt.Printf("log: QueryBlockByTxID: reponse.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
 		signer.err <- nil
 		return
 	}()
@@ -3843,150 +3844,20 @@ func (s *server) RegisterUser(ctx context.Context, req *immop.RegisterUserReques
 		return
 	}
 
+	caCli := newCAClient("https://"+caCommonName+defaultCAPortStr)
 	if req.AuthType == "LDAP" {
-		retErr = s.registerLDAPUser(tmpPriv, tmpCert, req)
+		var adminCert []byte
+		adminCert, retErr =  registerLDAPAdmin(caCli, tmpPriv, tmpCert, req)
+		if retErr != nil {
+			return
+		}
+
+		retErr = storeCertID(adminCert)
 		return
 	}
 
 	retErr = fmt.Errorf("unknown authentication type: %s", req.AuthType)
 	return
-}
-
-func (s *server) registerLDAPUser(tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) (error) {
-	authParam := &immop.AuthParamLDAP{}
-	err := proto.Unmarshal(req.AuthParam, authParam)
-	if err != nil {
-		return fmt.Errorf("invalid authentication parameter: %s", err)
-	}
-
-	ldapSrv, err := ldap.Dial("tcp", authParam.ServerName)
-	if err != nil {
-		return fmt.Errorf("could not connect to the LDAP server: %s", err)
-	}
-
-	/*
-	err = ldapSrv.StartTLS(&tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		fmt.Printf("log: insecure connection with the LDAP server: %s\n", err)
-		ldapSrv.Close()
-
-		ldapSrv, err = ldap.Dial("tcp", authParam.ServerName)
-		if err != nil {
-			return fmt.Errorf("could not connect to the LDAP server: %s", err)
-		}
-	}
-*/
-	defer ldapSrv.Close()
-		
-	/*
-	uidStr := "(&(objectClass=organizationalPerson)(uid="+authParam.UID+"))"
-	searchReq := ldap.NewSearchRequest(authParam.BaseDN,
-		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false, uidStr,
-		[]string{"dn"}, nil)
-	
-	ldapRsp, err := ldapSrv.Search(searchReq)
-	if err != nil {
-		return fmt.Errorf(authParam.UID + " was not found in %s: ", authParam.ServerName, err)
-	}
-*/
-
-	// register an LDAP user to the CA DB
-	affiliation := "FedLDAP" + ":" + strings.ReplaceAll(authParam.UserNameOnCA, ".", ":")
-	regReq := &immclient.RegistrationRequest{
-		Name: authParam.UserNameOnCA,
-		Attributes: []immclient.Attribute{
-			immclient.Attribute{Name: "LDAP.Server", Value: authParam.ServerName, ECert: false},
-			//			immclient.Attribute{Name: "LDAP.DN", Value: ldapRsp.Entries[0].DN, ECert: false},
-			immclient.Attribute{Name: "LDAP.DN", Value: "uid="+authParam.UID+","+authParam.BaseDN, ECert: false},
-			immclient.Attribute{Name: "hf.Registrar.Roles", Value: "client", ECert: false},
-		},
-		Affiliation: affiliation,
-		Type: "client",
-		MaxEnrollments: -1, // unlimit
-	}
-	reqData, err := json.Marshal(regReq)
-	if err != nil {
-		return fmt.Errorf("failed to create a request: %s", err)
-	}
-
-	caRegID := &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert}
-	urlBase := "https://" + s.parentCert.Subject.CommonName + ":7054"
-	client := immclient.GetDefaultHttpClient()
-	client.Transport =  &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-
-	// add an affilication
-	affAddF := true
-	affL, err := caRegID.GetAllAffiliations(urlBase)
-	if err != nil {
-		return err
-	}
-	for _, item := range affL.Affiliations {
-		if item.Name == affiliation {
-			affAddF = false
-			break
-		}
-	}
-	if affAddF {
-		err = caRegID.AddAffiliation(urlBase, affiliation)
-		if err != nil {
-			return  err
-		}
-	}
-
-	// register a user
-	uri := "/register"
-	url := urlBase + uri
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData) )
-	if err != nil {
-		return fmt.Errorf("failed to create a POST request: %s", err)
-	}
-
-	err = caRegID.AddToken(reqData, httpReq, uri)
-	if err != nil {
-		return err
-	}
-
-	regRsp := &immclient.RegistrationResponse{}
-	rsp := &immclient.Response{Result: regRsp}
-	err = immclient.SendReqCA(httpReq, rsp)
-	if err != nil {
-		return err
-	}
-
-	// pre-enrollment
-	_, csrPem, err := immclient.CreateCSR(regReq.Name)
-	if err != nil {
-		return err
-	}
-
-	nowT := time.Now().UTC()
-	preenrollReq := &immclient.EnrollmentRequestNet{
-		SignRequest: immclient.SignRequest{
-			Request: string(csrPem),
-			NotBefore: nowT,
-			NotAfter: nowT.Add(30*24*time.Hour/* one month */).UTC(),
-		},
-	}
-
-	preenrollRaw, err := json.Marshal(preenrollReq)
-	if err != nil {
-		return fmt.Errorf("failed to marshal a request: " + err.Error())
-	}
-
-	enrollReq := &immop.EnrollUserRequest{
-		EnrollReq: preenrollRaw,
-		Secret: regRsp.Secret,
-	}
-	preUserCert, err := s.enrollCAUser(regReq.Name, enrollReq)
-	if err != nil {
-		return err
-	}
-
-	return storeCertID(preUserCert)
 }
 
 type certID struct {
@@ -4005,7 +3876,17 @@ func storeCertID(certPem []byte) error {
 		return err
 	}
 
-	cfgMapName := cert.Issuer.CommonName + "-feduser"
+	fedName := strings.TrimPrefix(cert.Subject.CommonName, "@")
+	cfgMapSuffix := cfgMapFedUser
+	if fedName != cert.Subject.CommonName {
+		cfgMapSuffix = cfgMapFedGrp
+	}
+	cfgMapName := cert.Issuer.CommonName + cfgMapSuffix
+
+	if strings.Contains(fedName, "@") {
+		return fmt.Errorf("invalid username: " + cert.Subject.CommonName)
+	}
+		
 	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
 	if err != nil || fedMap == nil {
 		fedMap = &corev1.ConfigMap{
@@ -4036,7 +3917,7 @@ func storeCertID(certPem []byte) error {
 	if fedMap.BinaryData == nil {
 		fedMap.BinaryData = make(map[string][]byte)
 	}
-	fedMap.BinaryData[cert.Subject.CommonName] = certIDRaw
+	fedMap.BinaryData[fedName] = certIDRaw
 	_, err = cfgMapClient.Update(context.TODO(), fedMap, metav1.UpdateOptions{})
 	return err
 }
@@ -4047,7 +3928,17 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 		return nil, err
 	}
 
-	cfgMapName := caName + "-feduser"
+	tmpStrs := strings.SplitN(username, "@", 2)
+	fedName := tmpStrs[0]
+	adminName := fedName
+	cfgMapSuffix := cfgMapFedUser
+	if len(tmpStrs) == 2 {
+		fedName = tmpStrs[1]
+		adminName = "@"+fedName
+		cfgMapSuffix = cfgMapFedGrp
+	}
+
+	cfgMapName := caName + cfgMapSuffix
 	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
 	if err != nil || fedMap == nil {
 		return nil, fmt.Errorf("not found user")
@@ -4057,7 +3948,7 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("invalid configuration for federated user")
 	}
 
-	certIDRaw, ok := fedMap.BinaryData[username]
+	certIDRaw, ok := fedMap.BinaryData[fedName]
 	if !ok {
 		return nil, fmt.Errorf(username + " is not found in " + caName)
 	}
@@ -4073,7 +3964,7 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 	baseCert := &x509.Certificate{
 		SerialNumber: sn,
 		Subject: pkix.Name{
-			CommonName: username,
+			CommonName: adminName,
 			OrganizationalUnit: []string{"client"},
 		},
 		AuthorityKeyId: id.AuthorityKeyId,
@@ -4106,25 +3997,33 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 
 	username := csr.Subject.CommonName
 	caName := s.parentCert.Subject.CommonName
+	caCli := newCAClient("https://"+caName+defaultCAPortStr)
+	
 	baseCert, err := loadBaseCert(username, caName)
 	if err != nil {
 		// request to CA
-		reply.Cert, retErr = s.enrollCAUser(username, req)
+		reply.Cert, retErr = caCli.enrollCAUser(username, req)
 		return
 	}
 
 	// Enrolling user is federated user
-	tmpID, retErr := s.authenticateFedUser(baseCert, username, req)
+	tmpID, retErr := s.authenticateFedUser(caCli, baseCert, username, req.Secret)
 	if retErr != nil {
 		return // authentication failure
 	}
 	
 	// authentication success
-	reply.Cert, retErr = s.reenrollCAUser(tmpID, req)
+	if tmpID.Name == username {
+		reply.Cert, retErr = caCli.reenrollCAUser(tmpID, req)
+		return
+	}
+
+	// register and enroll user
+	reply.Cert, retErr = caCli.registerAndEnrollUser(tmpID, username, req)
 	return
 }
 
-func (s *server) authenticateFedUser(baseCert *x509.Certificate, username string, req *immop.EnrollUserRequest) (id *immclient.UserID, retErr error) {
+func (s *server) authenticateFedUser(caCli *caClient, baseCert *x509.Certificate, username, secret string) (id *immclient.UserID, retErr error) {
 	caName := s.parentCert.Subject.CommonName
 	
 	caPriv, caCert, err := immutil.K8sGetKeyPair(caName)
@@ -4139,120 +4038,29 @@ func (s *server) authenticateFedUser(baseCert *x509.Certificate, username string
 		return
 	}
 
-	client := immclient.GetDefaultHttpClient()
-	client.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
+	adminName := username
+	tmpStrs := strings.SplitN(username, "@", 2)
+	if len(tmpStrs) == 2 {
+		adminName = "@" + tmpStrs[1]
 	}
-	id = &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert}
-	idRsp, err := id.GetIdentity("https://"+caName+":7054", username)
+	
+	id = &immclient.UserID{Name: adminName, Priv: tmpPriv, Cert: tmpCert}
+	adminAttr, err := id.GetIdentity(caCli.urlBase, adminName)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return
 	}
 
-	ldapAttr := map[string] string{
-		"LDAP.Server": "",
-		"LDAP.DN": "",
-	}
-	for _, attr := range idRsp.Attributes {
-		_, ok := ldapAttr[attr.Name]
-		if ok {
-			ldapAttr[attr.Name] = attr.Value
-		}
-	}
-	for _, valueStr := range ldapAttr {
-		if valueStr == "" {
-			retErr = fmt.Errorf("authentication error")
-			return
-		}
-	}
-
-	ldapSrv, err := ldap.Dial("tcp", ldapAttr["LDAP.Server"])
+	err = authenticateLDAPUser(adminAttr, username, secret)
 	if err != nil {
-		retErr = fmt.Errorf("could not connect to the LDAP server: %s", err)
-		return
-	}
-	
-	err = ldapSrv.StartTLS(&tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		fmt.Printf("log: insecure connection with thw LDAP server: %s\n", err)
-		ldapSrv.Close()
-		
-		ldapSrv, err = ldap.Dial("tcp", ldapAttr["LDAP.Server"])
-		if err != nil {
-			retErr = fmt.Errorf("could not connect to the LDAP server: %s", err)
-			return
+		if err.Error() == "invalid user" {
+			// another authentication type
 		}
-	}
-	defer ldapSrv.Close()
-
-
-	err = ldapSrv.Bind(ldapAttr["LDAP.DN"], req.Secret)
-	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return
 	}
 
 	return // success
-}
-
-func (s *server) sendCSR(csr *http.Request) (cert []byte, retErr error) {
-	client := immclient.GetDefaultHttpClient()
-	client.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-	}
-	
-	csrRsp := &immclient.EnrollmentResponseNet{}
-	caRsp := &immclient.Response{Result: csrRsp}
-	retErr = immclient.SendReqCA(csr, caRsp)
-	if retErr != nil {
-		return
-	}
-	
-	cert, err := base64.StdEncoding.DecodeString(csrRsp.Cert)
-	if err != nil {
-		retErr = fmt.Errorf("unexpected certificate format: %s", err)
-		return
-	}
-
-	return // success
-}
-
-func (s *server) enrollCAUser(username string, req *immop.EnrollUserRequest) (cert []byte, retErr error) {
-	caName := s.parentCert.Subject.CommonName + ":7054"
-	csrUrl := "https://" + caName + "/enroll"
-	certSignReq, err := http.NewRequest("POST", csrUrl, bytes.NewReader(req.EnrollReq))
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a CA request: %s", err)
-		return
-	}
-	certSignReq.SetBasicAuth(username, req.Secret)
-	
-	cert, retErr = s.sendCSR(certSignReq)
-	return
-}
-
-func (s *server) reenrollCAUser(id *immclient.UserID, req *immop.EnrollUserRequest) (cert []byte, retErr error) {
-	uri := "/reenroll"
-	urlBase := "https://" + s.parentCert.Subject.CommonName + ":7054"
-	url := urlBase + uri
-	certSignReq, err := http.NewRequest("POST", url, bytes.NewReader(req.EnrollReq) )
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a request: %s", err)
-		return
-	}
-
-	retErr = id.AddToken(req.EnrollReq, certSignReq, uri)
-	if retErr != nil {
-		return
-	}
-
-	cert, retErr = s.sendCSR(certSignReq)
-	return
 }
 
 func main() {

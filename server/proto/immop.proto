@@ -148,11 +148,13 @@ message RegisterUserRequest {
 }
 
 message AuthParamLDAP {
-        string ServerName = 1;
-        string BaseDN = 2;
-        string UID = 3;
-        string UserNameOnCA = 4;
-        string Password = 5;
+        string BindServer = 1;
+        string BindDN = 2;
+        string QueryServer = 3;
+        string BaseDN = 4;
+        string Query = 5;
+        string UserNameOnCA = 6;
+        string Password = 7;
 }
 
 message EnrollUserRequest {

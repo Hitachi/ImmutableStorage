@@ -673,18 +673,27 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 		authAttrAreaHiddenF = true
 	case "LDAP":
 		html := `
-          <div class="row" id="LDAPServerArea">
-            <div class="cert-item"><label for="LDAPServer" id="LDAPServerLabel">LDAP server</label></div>
-            <div class="cert-input"><input type="text" id="LDAPServer" value="localhost:389"></div>
+          <div class="row" id="bindLDAPServerArea">
+            <div class="cert-item"><label for="bindLDAPServer" id="bindLDAPServerLabel">Bind LDAP server</label></div>
+            <div class="cert-input"><input type="text" id="bindLDAPServer" value="localhost:389"></div>
           </div>
-          <div class="row" id="baseDNArea">
-            <div class="cert-item"><label for="baseDN" id="baseDNLabel">Base DN</label></div>
-            <div class="cert-input"><input type="text" id="baseDN" value="ou=PEOPLE,o=,c="></div>
+          <div class="row" id="bindDNArea">
+            <div class="cert-item"><label for="bindDN" id="bindDNLabel">Bind DN format</label></div>
+            <div class="cert-input"><input type="text" id="bindDN" value='"uid=%s,ou=PEOPLE,o=,c=",sn'></div>
           </div>
-          <div class="row" id="uidLDAPArea">
-            <div class="cert-item"><label for="uidLDAP" id="uidLDAPLabel">UID</label></div>
-            <div class="cert-input"><input type="text" id="uidLDAP"></div>
-         </div>`
+
+          <div class="row" id="queryLDAPServerArea">
+            <div class="cert-item"><label for="queryLDAPServer" id="queryLDAPServerLabel">Query LDAP server</label></div>
+            <div class="cert-input"><input type="text" id="queryLDAPServer" value="localhost:389"></div>            
+          </div>
+          <div class="row" id="queryBaseDNArea">
+            <div class="cert-item"><label for="queryBaseDN" id="queryBaseDNLabel">Query base DN</label></div>
+            <div class="cert-input"><input type="text" id="queryBaseDN" value="ou=PEOPLE,o=,c="></div>            
+          </div>
+          <div class="row" id="queryLDAPArea">
+            <div class="cert-item"><label for="queryLDAP" id="queryLDAPLabel">Query format</label></div>
+            <div class="cert-input"><input type="text" id="queryLDAP" value='"(&(objectClass=organizationalPerson)(|(department=de1)(department=de2))(mail=%s))",username'></div>
+          </div>`
 		authAttrArea.Set("innerHTML", html)
 		regSecretAreaHiddenF = true
 	default:
@@ -755,9 +764,11 @@ func registerAppUser() error {
 		return err
 	case "LDAP":
 		authParam := &immop.AuthParamLDAP{
-			ServerName: doc.Call("getElementById", "LDAPServer").Get("value").String(),
-			BaseDN: doc.Call("getElementById", "baseDN").Get("value").String(),
-			UID: doc.Call("getElementById", "uidLDAP").Get("value").String(),
+			BindServer: doc.Call("getElementById", "bindLDAPServer").Get("value").String(),
+			BindDN: doc.Call("getElementById", "bindDN").Get("value").String(),
+			QueryServer: doc.Call("getElementById", "queryLDAPServer").Get("value").String(),
+			BaseDN: doc.Call("getElementById", "queryBaseDN").Get("value").String(),
+			Query: doc.Call("getElementById", "queryLDAP").Get("value").String(),
 			UserNameOnCA: doc.Call("getElementById", "registerName").Get("value").String(),
 		}
 		
