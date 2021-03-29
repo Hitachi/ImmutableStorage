@@ -55,7 +55,7 @@ func GetLocalRegistryAddr() (addr string, retErr error) {
 	}
 
 	addr = "localhost"
-	addr += strconv.Itoa(int(service.Spec.Ports[0].NodePort))
+	addr += ":" + strconv.Itoa(int(service.Spec.Ports[0].NodePort))
 	return
 }
 
