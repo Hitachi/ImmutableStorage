@@ -25,10 +25,11 @@ require (
 	github.com/gorilla/mux v1.7.4 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 // indirect
 	github.com/hashicorp/go-version v1.2.0 // indirect
-	github.com/hyperledger/fabric v1.4.7
+	github.com/hyperledger/fabric v1.4.11
 	github.com/hyperledger/fabric-amcl v0.0.0-20200424173818-327c9e2cf77a // indirect
 	github.com/hyperledger/fabric-lib-go v1.0.0 // indirect
-	github.com/mitchellh/mapstructure v1.3.1
+	github.com/miekg/pkcs11 v1.0.3 // indirect
+	github.com/mitchellh/mapstructure v1.3.1 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -46,7 +47,6 @@ require (
 	immutil v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.18.3
 	k8s.io/apimachinery v0.18.3
-	k8s.io/client-go v0.18.3 // indirect
 )
 
 replace github.com/docker/docker => github.com/docker/engine v17.12.0-ce-rc1.0.20200618181300-9dc6525e6118+incompatible
