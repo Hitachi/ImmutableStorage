@@ -163,20 +163,28 @@ func Main(args []string) {
 		} else {
 			cntImg = containerd.NewImage(cntCli, img)
 		}
-		
+
 		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err == nil {
 			findImgList[imgName].present = true
 			return nil // success
 		}
-			
-		// retry
+		fmt.Printf("failed to push %s image: %s\n", imgName, err)
+
+		// fetch all platforms
+		fmt.Printf("fetch %s image\n", imgName)
+		img, err = cntCli.Fetch(ctx, imgPrefix+imgName, dockerIoResolver)
+		if err != nil {
+			return fmt.Errorf("failed to fetch %s image: %s", imgName, err)
+		}
+		cntImg = containerd.NewImage(cntCli, img)
+
+		// unpack an image
 		plats, err := images.Platforms(ctx, cntImg.ContentStore(), cntImg.Target())
 		if err != nil {
 			return fmt.Errorf("failed to get platforms: %s", err)
 		}
 		
-		fmt.Printf("image: %s\n", imgName)
 		for _, plat := range plats {
 			fmt.Printf("unpack ARCH: %s, OS: %s\n", plat.Architecture, plat.OS)
 			i := containerd.NewImageWithPlatform(cntCli, img, platforms.Only(plat))
@@ -190,7 +198,8 @@ func Main(args []string) {
 				}
 			}
 		}
-			
+
+		// push an image
 		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
 		if err != nil {
 			return fmt.Errorf("failed to push %s to the registry: %s", imgName, err)
@@ -200,6 +209,7 @@ func Main(args []string) {
 		return nil // success
 	}
 
+	errorF := false
 	for i := 0; i < 5; i++ {
 		for imgName, attr := range findImgList {
 			if attr.present == true {
@@ -210,18 +220,20 @@ func Main(args []string) {
 			err = pullPushImage(attr.prefix, imgName)
 			if err != nil {
 				fmt.Printf("%s\n", err)
+				errorF = true
 			}
 		}
 		
-		if err == nil {
+		if errorF == false {
 			return // success
 		}
 
-		time.Sleep(5*time.Second) // sleep 5s
-		err = nil // retry
-	}
+		if i == 4 {
+			fmt.Printf("give up\n")
+			os.Exit(5) // give up
+		}
 
-	if err != nil {
-		os.Exit(5) // give up
+		time.Sleep(5*time.Second) // sleep 5s
+		errorF = false // retry
 	}
 }
