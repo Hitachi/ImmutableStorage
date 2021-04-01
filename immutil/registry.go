@@ -231,7 +231,11 @@ func (cli *RegClient) GetDigest(name, tag string) (digest string, retErr error){
 
 	rsp, _, err := cli.sendReq(req)
 	if err != nil {
-		retErr = fmt.Errorf("could not read the body: " + err.Error())
+		retErr = fmt.Errorf("failed to requst: " + err.Error())
+		return
+	}
+	if rsp.Status != "200 OK" {
+		retErr = fmt.Errorf("The specified image does not exist in the registry: receiving a status=%s", rsp.Status)
 		return
 	}
 
@@ -248,7 +252,7 @@ func (cli *RegClient) DeleteImgInReg(name, tag string) (retErr error) {
 	url := cli.url + "/v2/" + name + "/manifests/" + digest
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
-		retErr = fmt.Errorf("failed to a request for deleting image: " + err.Error() )
+		retErr = fmt.Errorf("failed to create a request deleting an image: " + err.Error() )
 		return
 	}
 	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
@@ -267,7 +271,7 @@ func (cli *RegClient) DeleteImgInReg(name, tag string) (retErr error) {
 		return // success
 	}
 	
-	retErr = fmt.Errorf("got error: status=%s", rsp.Status)
+	retErr = fmt.Errorf("failed to delete an image in the registry: receiving a status=%s", rsp.Status)
 	return
 }
 
