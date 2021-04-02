@@ -33,19 +33,19 @@ const (
 	TlsCAHostname = "tlsca"
 	DinDHostname = "dind"
 
-	CaImg = "hyperledger/fabric-ca:1.4.6"
-	OrdererImg = "hyperledger/fabric-orderer:1.4.6"
-	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.20"
-	PeerImg = "hyperledger/fabric-peer:1.4.6"
-	DockerImg = "library/docker:19.03.9-dind"
+	CaImg = "hyperledger/fabric-ca:1.5.0"
+	OrdererImg = "hyperledger/fabric-orderer:1.4.11"
+	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.22"
+	PeerImg = "hyperledger/fabric-peer:1.4.11"
+	DockerImg = "library/docker:19.03.15-dind"
 	
 	ImmHttpdImg = "library/httpd:2.4.46"
 
 	ImmSrvImg = "library/ubuntu:20.10"
-	EnvoyImg = "envoyproxy/envoy:v1.14.1"
+	EnvoyImg = "envoyproxy/envoy:v1.14.6"
 
-	ChainCcenvImg = "hyperledger/fabric-ccenv:1.4.7"
-	ChainBaseOsImg = "hyperledger/fabric-baseos:amd64-0.4.18"
+	ChainCcenvImg = "hyperledger/fabric-ccenv:1.4.11"
+	ChainBaseOsImg = "hyperledger/fabric-baseos:amd64-0.4.22"
 
 	configYaml = "config.yaml"
 
