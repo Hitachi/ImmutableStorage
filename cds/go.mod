@@ -5,7 +5,7 @@ go 1.16
 require (
 	github.com/Microsoft/go-winio v0.4.16 // indirect
 	github.com/Microsoft/hcsshim v0.8.14 // indirect
-	github.com/containerd/containerd v1.4.3 // indirect
+	github.com/containerd/containerd v1.4.9 // indirect
 	github.com/containerd/continuity v0.0.0-20210208174643-50096c924a4e // indirect
 	github.com/docker/docker v20.10.3-0.20210216175712-646072ed6524+incompatible // indirect
 	github.com/fsouza/go-dockerclient v1.3.6 // indirect
