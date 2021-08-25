@@ -17,15 +17,17 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"encoding/base64"	
 	"crypto/tls"
 	"bytes"
 	"fmt"
+	"time"
+	"io"
 	"net/http"
 	"immclient"
 	"immop"
 )
+
 
 type caClient struct {
 	urlBase string
@@ -33,7 +35,7 @@ type caClient struct {
 }
 
 func newCAClient(urlBase string) (*caClient){
-	client := immclient.GetDefaultHttpClient()
+	client := &http.Client{}
 	client.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
@@ -46,31 +48,46 @@ func newCAClient(urlBase string) (*caClient){
 	}
 }
 
-func (cli *caClient) registerCAUser(adminID *immclient.UserID, req *immclient.RegistrationRequest) (secret string, retErr error) {
-	uri := "/register"
-	url := cli.urlBase + uri
+func (cli *caClient) sendReqCA(req *http.Request) (rsp []byte, retErr error){
+	resp, err := cli.client.Do(req)
+	if err != nil {
+		retErr = fmt.Errorf("failed to request: " + err.Error())
+		return
+	}
+	if resp.Body == nil {
+		retErr = fmt.Errorf("responded body is nil")
+		return
+	}
+	defer func() {
+		err := resp.Body.Close()
+		if err != nil {
+			print("log: failed to close the body: " + err.Error() + "\n")
+		}
+	}()
 	
-	reqData, err := json.Marshal(req)
+	rsp, err = io.ReadAll(resp.Body)
 	if err != nil {
-		retErr = fmt.Errorf("failed to create a request for registration: %s", err)
+		retErr = fmt.Errorf("could not read the body: " + err.Error())
 		return
 	}
+	
+	return // success
+}
 
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData) )
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a POST request for registration: %s", err)
-		return
-	}
-
-	retErr = adminID.AddToken(reqData, httpReq, uri)
-	if retErr != nil {
-		return
-	}
-
+func (cli *caClient) registerCAUser(adminID *immclient.UserID, req *immclient.RegistrationRequest) (secret string, retErr error) {
 	regRsp := &immclient.RegistrationResponse{}
-	rsp := &immclient.Response{Result: regRsp}
-	retErr = immclient.SendReqCA(httpReq, rsp)
-	if retErr != nil {
+	reqCA := &immclient.ReqCAParam{
+		Func: "Register",
+		URLBase: cli.urlBase,
+		URI: "/register",
+		Method: "POST",
+		Param: req,
+		Result: regRsp,
+	}
+	
+	err := adminID.SendReqCA(reqCA)
+	if err != nil {
+		retErr = fmt.Errorf("failed to register a user: %s", err)
 		return
 	}
 
@@ -78,65 +95,65 @@ func (cli *caClient) registerCAUser(adminID *immclient.UserID, req *immclient.Re
 	return // success
 }
 
-func (cli *caClient) enrollCAUser(username string, req *immop.EnrollUserRequest) (cert []byte, retErr error) {
-	uri := "/enroll"
-	csrUrl := cli.urlBase + uri
-	
-	certSignReq, err := http.NewRequest("POST", csrUrl, bytes.NewReader(req.EnrollReq))
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a CA request: %s", err)
-		return
-	}
-	certSignReq.SetBasicAuth(username, req.Secret)
-	
-	cert, retErr = cli.sendCSR(certSignReq)
-	return
-}
-
-func (cli *caClient) reenrollCAUser(id *immclient.UserID, req *immop.EnrollUserRequest) (cert []byte, retErr error) {
-	uri := "/reenroll"
-	url := cli.urlBase + uri
-	certSignReq, err := http.NewRequest("POST", url, bytes.NewReader(req.EnrollReq) )
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a request: %s", err)
-		return
-	}
-
-	retErr = id.AddToken(req.EnrollReq, certSignReq, uri)
-	if retErr != nil {
-		return
-	}
-
-	cert, retErr = cli.sendCSR(certSignReq)
-	return
-}
-
-func (cli *caClient) sendCSR(csr *http.Request) (cert []byte, retErr error) {
+func (cli *caClient) enrollCAUser(username, secret string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	csrRsp := &immclient.EnrollmentResponseNet{}
-	caRsp := &immclient.Response{Result: csrRsp}
-	retErr = immclient.SendReqCA(csr, caRsp)
-	if retErr != nil {
+	reqCA := &immclient.ReqCAParam{
+		Func: "Enroll",
+		URLBase: cli.urlBase,
+		URI: "/enroll",
+		Method: "POST",
+		Param: req,
+		Result: csrRsp,
+	}
+
+	id := immclient.UserID{Name: username, Priv: []byte(secret), Client: cli}
+	err := id.SendReqCA(reqCA)
+	if err != nil {
+		retErr = fmt.Errorf("failed to enroll a user: %s", err)
 		return
 	}
 	
-	cert, err := base64.StdEncoding.DecodeString(csrRsp.Cert)
+	cert, err = base64.StdEncoding.DecodeString(csrRsp.Cert)
 	if err != nil {
 		retErr = fmt.Errorf("unexpected certificate format: %s", err)
 		return
 	}
-
-	return // success
+	return
 }
 
-func (cli *caClient) registerAndEnrollUser(adminID *immclient.UserID, username string, req *immop.EnrollUserRequest) (cert []byte, retErr error) {
+func (cli *caClient) reenrollCAUser(id *immclient.UserID, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
+	csrRsp := &immclient.EnrollmentResponseNet{}
+	reqCA := &immclient.ReqCAParam{
+		Func: "Reenroll",
+		URLBase: cli.urlBase,
+		URI: "/reenroll",
+		Method: "POST",
+		Param: req,
+		Result: csrRsp,
+	}
+	
+	err := id.SendReqCA(reqCA)
+	if err != nil {
+		retErr = fmt.Errorf("failed to reenroll a user: %s", err)
+		return
+	}
+	
+	cert, err = base64.StdEncoding.DecodeString(csrRsp.Cert)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected certificate format: %s", err)
+		return
+	}
+	return
+}
+
+func (cli *caClient) registerAndEnrollUser(adminID *immclient.UserID, username string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	caSecret := immclient.RandStr(8)
-	req.Secret = caSecret
 
 	_, err := adminID.GetIdentity(cli.urlBase, username)
 	if err == nil {
 		// There is a record for this user in CA DB
 		adminID.ChangeSecret(cli.urlBase, username, caSecret)
-		return cli.enrollCAUser(username, req)
+		return cli.enrollCAUser(username, caSecret, req)
 	}
 	
 	// register an LDAP user
@@ -153,5 +170,81 @@ func (cli *caClient) registerAndEnrollUser(adminID *immclient.UserID, username s
 	}
 	
 	// enroll a user
-	return cli.enrollCAUser(username, req)
+	return cli.enrollCAUser(username, caSecret, req)
+}
+
+func (cli *caClient) addAffiliation(caRegID *immclient.UserID, affiliation string) (error) {
+	affL, err := caRegID.GetAllAffiliations(cli.urlBase)
+	if err != nil {
+		return err
+	}
+	
+	for _, item := range affL.Affiliations {
+		if item.Name == affiliation {
+			return nil // The specifed affiliation already exists.
+		}
+	}
+
+	return caRegID.AddAffiliation(cli.urlBase, affiliation)
+}
+
+func (cli *caClient) registerAndEnrollAdmin(caRegID *immclient.UserID, regReq *immclient.RegistrationRequest, roleDurationYear time.Duration) ([]byte, error) {
+	// add an affilication
+	err := cli.addAffiliation(caRegID, regReq.Affiliation)
+	if err != nil {
+		return nil, err
+	}
+
+	// register a user
+	secret, err := cli.registerCAUser(caRegID, regReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// pre-enrollment
+	_, csrPem, err := immclient.CreateCSR(regReq.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	nowT := time.Now().UTC()
+	preenrollReq := &immclient.EnrollmentRequestNet{
+		SignRequest: immclient.SignRequest{
+			Request: string(csrPem),
+			NotBefore: nowT,
+			NotAfter: nowT.Add(roleDurationYear*365*24*time.Hour).UTC(),
+		},
+	}
+
+	return cli.enrollCAUser(regReq.Name, secret, preenrollReq)
+}
+
+var caOP = map[string] struct{Method string}{
+	"GetAllIdentities": {Method: "GET",},
+	"GetAllAffiliations": {Method: "GET",},
+	"GetAffiliation": {Method: "GET",},
+	"AddAffiliation": {Method: "POST", },
+	"RemoveAffiliation": {Method: "DELETE",},
+	"Register": {Method: "POST",},
+	"GetIdentity": {Method: "GET",},
+	"RemoveIdentity": {Method: "DELETE",},
+	"RevokeIdentity": {Method: "POST",},
+	"Enroll": {Method: "POST",},
+	"Reenroll": {Method: "POST", },
+	"ModifyIdentity": {Method: "PUT",},
+}
+
+func (cli *caClient) RequestCA(req *immop.CommCARequest) (rsp []byte, retErr error) {
+	op, ok := caOP[req.Func]
+	if !ok {
+		return nil, fmt.Errorf("unknown function")
+	}
+
+	reqCA, err := http.NewRequest(op.Method, cli.urlBase+req.URI, bytes.NewReader(req.Param) )
+	if err != nil {
+		return nil, fmt.Errorf("failed to create a request")
+	}
+	reqCA.Header.Set("authorization", req.Token)
+
+	return cli.sendReqCA(reqCA)	
 }
