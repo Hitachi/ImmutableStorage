@@ -26,9 +26,7 @@ import (
 	"crypto/x509/pkix"
 	"fmt"
 	"os"
-	"io/ioutil"
 	"bytes"
-	"strings"
 
 	"immutil"
 )
@@ -43,7 +41,7 @@ const (
 func startHttpd(config *immutil.ImmConfig) error {
 	subj := &config.Subj
 	hostname := subj.CommonName
-	caHostname := immutil.CAHostname+strings.TrimPrefix(hostname, immutil.HttpdHostname)
+	//	caHostname := immutil.CAHostname+strings.TrimPrefix(hostname, immutil.HttpdHostname)
 
 	// create keys for a HTTPD
 	secretName, err := immutil.K8sCreateSelfKeyPair(subj)
@@ -64,6 +62,7 @@ func startHttpd(config *immutil.ImmConfig) error {
 				return err2
 			}
 
+/*
 			// edit httpd.conf
 			httpConfFile, err2 := os.OpenFile(httpConfDir + "/httpd.conf", os.O_WRONLY|os.O_APPEND, 0644)
 			if err2 != nil {
@@ -71,16 +70,17 @@ func startHttpd(config *immutil.ImmConfig) error {
 			}
 			httpConfFile.Write([]byte("ProxyPass \"/ca\" \"https://" + caHostname + ":7054\"\n"))
 			httpConfFile.Close()
+*/
 
 			// edit extra/httpd-ssl.conf
 			sslConfFile := httpConfDir + "/extra/httpd-ssl.conf"
-			httpSslConf, err2 := ioutil.ReadFile(sslConfFile)
+			httpSslConf, err2 := os.ReadFile(sslConfFile)
 			if err2 != nil {
 				return fmt.Errorf("failed to read httpd-ssl.conf: %s", err2)
 			}
 
 			httpSslConf = bytes.Replace(httpSslConf, []byte("HOSTNAME"), []byte(hostname), 1)
-			err2 = ioutil.WriteFile(sslConfFile, httpSslConf, 0644)
+			err2 = os.WriteFile(sslConfFile, httpSslConf, 0644)
 			if err2 != nil {
 				return fmt.Errorf("failed to edit httpd-ssl.conf: %s", err2)
 			}
