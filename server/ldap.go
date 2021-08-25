@@ -17,11 +17,9 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"crypto/tls"
 	"regexp"
 	"strings"
-	"time"
 	"fmt"
 
 	"github.com/golang/protobuf/proto"
@@ -53,23 +51,21 @@ func registerLDAPAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.Regi
 		return nil, err
 	}
 
-	queryServer := authParam.BindServer
 	if authParam.QueryServer != "" {
-		queryServer = authParam.QueryServer
-		err = pingLDAP(queryServer)
+		err = pingLDAP(authParam.QueryServer)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// register an LDAP user to the CA DB
-	affiliation := "FedLDAP" + ":" + strings.ReplaceAll(authParam.UserNameOnCA, ".", ":")
+	affiliation := affnLDAPPrefix + strings.ReplaceAll(authParam.UserNameOnCA, ".", ":")
 	regReq := &immclient.RegistrationRequest{
 		Name: authParam.UserNameOnCA,
 		Attributes: []immclient.Attribute{
 			immclient.Attribute{Name: "LDAP.BindServer", Value: authParam.BindServer, ECert: false},
 			immclient.Attribute{Name: "LDAP.BindDN", Value: authParam.BindDN, ECert: false},
-			immclient.Attribute{Name: "LDAP.QueryServer", Value: queryServer, ECert: false},
+			immclient.Attribute{Name: "LDAP.QueryServer", Value: authParam.QueryServer, ECert: false},
 			immclient.Attribute{Name: "LDAP.BaseDN", Value: authParam.BaseDN, ECert: false},
 			immclient.Attribute{Name: "LDAP.Query", Value: authParam.Query, ECert: false},
 			immclient.Attribute{Name: "hf.Registrar.Roles", Value: "client", ECert: false},
@@ -79,59 +75,8 @@ func registerLDAPAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.Regi
 		MaxEnrollments: -1, // unlimit
 	}
 
-	caRegID := &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert}
-
-	// add an affilication
-	affAddF := true
-	affL, err := caRegID.GetAllAffiliations(caCli.urlBase)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range affL.Affiliations {
-		if item.Name == affiliation {
-			affAddF = false
-			break
-		}
-	}
-	if affAddF {
-		err = caRegID.AddAffiliation(caCli.urlBase, affiliation)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// register a user
-	secret, err := caCli.registerCAUser(caRegID, regReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// pre-enrollment
-	_, csrPem, err := immclient.CreateCSR(regReq.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	nowT := time.Now().UTC()
-	preenrollReq := &immclient.EnrollmentRequestNet{
-		SignRequest: immclient.SignRequest{
-			Request: string(csrPem),
-			NotBefore: nowT,
-			NotAfter: nowT.Add(365*24*time.Hour/* one year */).UTC(),
-		},
-	}
-
-	preenrollRaw, err := json.Marshal(preenrollReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal a request: " + err.Error())
-	}
-
-	enrollReq := &immop.EnrollUserRequest{
-		EnrollReq: preenrollRaw,
-		Secret: secret,
-	}
-
-	return caCli.enrollCAUser(regReq.Name, enrollReq)
+	caRegID := &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert, Client: caCli}
+	return caCli.registerAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
 }
 
 func connLDAP(serverName string) (*ldap.Conn, error) {
@@ -169,90 +114,99 @@ func authenticateLDAPUser(adminAttr *immclient.IdentityResponse, username, secre
 			ldapAttr[attr.Name] = attr.Value
 		}
 	}
-	for _, valueStr := range ldapAttr {
-		if valueStr == "" {
-			// not LDAP user
-			retErr = fmt.Errorf("invalid user")
-			return 
-		}
+	for ldapAttr["LDAP.BindServer"] == "" || ldapAttr["LDAP.BindDN"] == "" {
+		// not LDAP user
+		retErr = fmt.Errorf("invalid user")
+		return 
 	}
 
 	semiExp, _ := regexp.Compile("^\\s*\"(.*)\"(.*)")
 	spExp, _ := regexp.Compile("\\s")
 
-	queryStr := semiExp.ReplaceAllString(ldapAttr["LDAP.Query"], "$1")
-	queryArgsStr := semiExp.ReplaceAllString(ldapAttr["LDAP.Query"], "$2")
-	queryArgsStr = spExp.ReplaceAllString(queryArgsStr, "")
-	queryArgs := strings.Split(queryArgsStr, ",")
-	
-	for _, queryArg := range queryArgs {
-		if queryArg == "username" {
-			queryStr = fmt.Sprintf(queryStr, username)
-		}
-	}
-	
+
+	var bindDNArgVals []interface{}
 	bindDNStr := semiExp.ReplaceAllString(ldapAttr["LDAP.BindDN"], "$1")
 	bindDNArgsStr := semiExp.ReplaceAllString(ldapAttr["LDAP.BindDN"], "$2")
 	bindDNArgsStr = spExp.ReplaceAllString(bindDNArgsStr, "")
 	bindDNArgs := strings.Split(bindDNArgsStr, ",")
 
-	queryArgs = nil
-	for _, queryArg := range bindDNArgs {
-		if queryArg == "" {
-			continue // skip
+	for _, bindArg := range bindDNArgs {
+		if bindArg == "username" {
+			nameAndOrg := strings.SplitN(username, "@", 2)
+			bindDNArgVals = append(bindDNArgVals,  nameAndOrg[0])
+		}
+	}
+	
+	if ldapAttr["LDAP.QueryServer"] != "" {
+		queryStr := semiExp.ReplaceAllString(ldapAttr["LDAP.Query"], "$1")
+		queryArgsStr := semiExp.ReplaceAllString(ldapAttr["LDAP.Query"], "$2")
+		queryArgsStr = spExp.ReplaceAllString(queryArgsStr, "")
+		queryArgs := strings.Split(queryArgsStr, ",")
+		
+		for _, queryArg := range queryArgs {
+			if queryArg == "username" {
+				queryStr = fmt.Sprintf(queryStr, username)
+			}
 		}
 
-		queryArgs = append(queryArgs, queryArg)
-	}
-	bindDNArgs = queryArgs
-	
-	if queryArgs == nil {
-		queryArgs = []string{"dn"}
-	}
-
-	querySrv, retErr := connLDAP(ldapAttr["LDAP.QueryServer"])
-	if retErr != nil {
-		return
-	}
-	defer querySrv.Close()
-	
-	searchReq := ldap.NewSearchRequest(
-		ldapAttr["LDAP.BaseDN"],
-		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		queryStr, queryArgs, nil)
-	queryResult, err := querySrv.Search(searchReq)
-	if err != nil {
-		retErr = fmt.Errorf("failed to search a user in the LDAP with the \""+queryStr+"\" filter: " + err.Error())
-		return
-	}
-	if queryResult.Entries == nil {
-		retErr = fmt.Errorf("could not get a bind-DN for the specified user")
-		return
-	}
-
-	var bindDNArgVals []interface{}
-	notFoundAttr := ""
-	for _, ldapEntry := range queryResult.Entries {
-		notFoundAttr = ""
+		queryArgs = nil
 		for _, queryArg := range bindDNArgs {
-			bindArg := ldapEntry.GetAttributeValue(queryArg)
-			if bindArg == "" {
-				notFoundAttr = queryArg
-				break // go to next entry
+			if queryArg == "" {
+				continue // skip
 			}
 
-			bindDNArgVals = append(bindDNArgVals, bindArg)
+			queryArgs = append(queryArgs, queryArg)
 		}
-		if notFoundAttr == "" { 
-			break
+		bindDNArgs = queryArgs
+	
+		if queryArgs == nil {
+			queryArgs = []string{"dn"}
 		}
 
-		bindDNArgVals = nil // go to next entry
-	}
+		var querySrv *ldap.Conn
+		querySrv, retErr = connLDAP(ldapAttr["LDAP.QueryServer"])
+		if retErr != nil {
+			return
+		}
+		defer querySrv.Close()
 	
-	if notFoundAttr != "" {
-		retErr = fmt.Errorf("\""+notFoundAttr+"\" attribute is not found")
-		return
+		searchReq := ldap.NewSearchRequest(
+			ldapAttr["LDAP.BaseDN"],
+			ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+			queryStr, queryArgs, nil)
+		queryResult, err := querySrv.Search(searchReq)
+		if err != nil {
+			retErr = fmt.Errorf("failed to search a user in the LDAP with the \""+queryStr+"\" filter: " + err.Error())
+			return
+		}
+		if queryResult.Entries == nil {
+			retErr = fmt.Errorf("could not get a bind-DN for the specified user")
+			return
+		}
+
+		notFoundAttr := ""
+		for _, ldapEntry := range queryResult.Entries {
+			notFoundAttr = ""
+			for _, queryArg := range bindDNArgs {
+				bindArg := ldapEntry.GetAttributeValue(queryArg)
+				if bindArg == "" {
+					notFoundAttr = queryArg
+					break // go to next entry
+				}
+
+				bindDNArgVals = append(bindDNArgVals, bindArg)
+			}
+			if notFoundAttr == "" { 
+			break
+			}
+
+			bindDNArgVals = nil // go to next entry
+		}
+	
+		if notFoundAttr != "" {
+			retErr = fmt.Errorf("\""+notFoundAttr+"\" attribute is not found")
+			return
+		}
 	}
 
 	bindDNStr = fmt.Sprintf(bindDNStr, bindDNArgVals...)
@@ -263,7 +217,7 @@ func authenticateLDAPUser(adminAttr *immclient.IdentityResponse, username, secre
 	}
 	defer bindSrv.Close()
 
-	err = bindSrv.Bind(bindDNStr, secret)
+	err := bindSrv.Bind(bindDNStr, secret)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return
