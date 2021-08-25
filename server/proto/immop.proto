@@ -45,13 +45,11 @@ message ListServiceReply {
 message ImportServiceRequest {
         Credential Cred = 1;
         ExportServiceReply Service = 2;
-        string CAToken = 3;
 }
 
 message CreateChannelRequest {
         Credential Cred = 1;
         string ChannelID = 2;
-        string CAToken = 3;
 }
 
 message ListImportedServiceRequest {
@@ -68,7 +66,6 @@ message ListImportedServiceSummary {
 message RemoveServiceRequest {
         Credential Cred = 1;
         ServiceSummary Peer = 2;
-        string CAToken = 3;
 }
 
 message ListChannelReply {
@@ -157,6 +154,11 @@ message AuthParamLDAP {
         string Password = 7;
 }
 
+message AuthParamJPKI {
+        string UserNameOnCA = 1;
+        string ImportItems = 2;
+}
+
 message EnrollUserRequest {
         bytes EnrollReq = 1;
         string Secret = 2;
@@ -164,6 +166,26 @@ message EnrollUserRequest {
 
 message EnrollUserReply {
         bytes Cert = 1;
+}
+
+message CommCARequest {
+        string Func = 1;
+        string URI = 2;
+        string Token = 3;
+        bytes Param = 4;
+}
+
+message CommCAReply {
+        bytes Rsp = 1;
+}
+
+message JPKIFuncRequest {
+        string Func = 1;
+        bytes Req = 2;
+}
+
+message JPKIFuncReply {
+        bytes Rsp = 1;
 }
 
 service ImmOperation {
@@ -191,4 +213,6 @@ service ImmOperation {
         rpc QueryBlockByTxID(QueryBlockByTxIDReq) returns (Prop) {}
         rpc RegisterUser(RegisterUserRequest) returns (Reply) {}
         rpc EnrollUser(EnrollUserRequest) returns (EnrollUserReply) {}
+        rpc CommCA(CommCARequest) returns (CommCAReply) {}
+        rpc JPKIFunc(JPKIFuncRequest) returns (JPKIFuncReply) {}
 }

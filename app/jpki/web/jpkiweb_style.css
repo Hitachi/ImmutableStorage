@@ -156,7 +156,7 @@ th {
 }
 
 td {
-  text-align: left;
+  text-align: center;
 }
 
 #historyTable tr:not(:first-child) td:nth-child(2) {

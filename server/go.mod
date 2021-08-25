@@ -1,6 +1,6 @@
 module immsrv
 
-go 1.14
+go 1.16
 
 replace immutil => ../immutil
 
@@ -45,6 +45,7 @@ require (
 	immclient v0.0.0-00010101000000-000000000000
 	immop v0.0.0-00010101000000-000000000000
 	immutil v0.0.0-00010101000000-000000000000
+	jpkicli v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/api v0.18.3
 	k8s.io/apimachinery v0.18.3
 )
@@ -52,3 +53,5 @@ require (
 replace github.com/docker/docker => github.com/docker/engine v17.12.0-ce-rc1.0.20200618181300-9dc6525e6118+incompatible
 
 replace immclient => ../web/immclient
+
+replace jpkicli => ../app/jpki/clt

@@ -41,6 +41,8 @@ type ImmOperationClient interface {
 	QueryBlockByTxID(ctx context.Context, in *QueryBlockByTxIDReq, opts ...grpc.CallOption) (*Prop, error)
 	RegisterUser(ctx context.Context, in *RegisterUserRequest, opts ...grpc.CallOption) (*Reply, error)
 	EnrollUser(ctx context.Context, in *EnrollUserRequest, opts ...grpc.CallOption) (*EnrollUserReply, error)
+	CommCA(ctx context.Context, in *CommCARequest, opts ...grpc.CallOption) (*CommCAReply, error)
+	JPKIFunc(ctx context.Context, in *JPKIFuncRequest, opts ...grpc.CallOption) (*JPKIFuncReply, error)
 }
 
 type immOperationClient struct {
@@ -267,6 +269,24 @@ func (c *immOperationClient) EnrollUser(ctx context.Context, in *EnrollUserReque
 	return out, nil
 }
 
+func (c *immOperationClient) CommCA(ctx context.Context, in *CommCARequest, opts ...grpc.CallOption) (*CommCAReply, error) {
+	out := new(CommCAReply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/CommCA", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *immOperationClient) JPKIFunc(ctx context.Context, in *JPKIFuncRequest, opts ...grpc.CallOption) (*JPKIFuncReply, error) {
+	out := new(JPKIFuncReply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/JPKIFunc", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImmOperationServer is the server API for ImmOperation service.
 // All implementations should embed UnimplementedImmOperationServer
 // for forward compatibility
@@ -295,6 +315,8 @@ type ImmOperationServer interface {
 	QueryBlockByTxID(context.Context, *QueryBlockByTxIDReq) (*Prop, error)
 	RegisterUser(context.Context, *RegisterUserRequest) (*Reply, error)
 	EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error)
+	CommCA(context.Context, *CommCARequest) (*CommCAReply, error)
+	JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error)
 }
 
 // UnimplementedImmOperationServer should be embedded to have forward compatible implementations.
@@ -372,6 +394,12 @@ func (*UnimplementedImmOperationServer) RegisterUser(context.Context, *RegisterU
 }
 func (*UnimplementedImmOperationServer) EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EnrollUser not implemented")
+}
+func (*UnimplementedImmOperationServer) CommCA(context.Context, *CommCARequest) (*CommCAReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CommCA not implemented")
+}
+func (*UnimplementedImmOperationServer) JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method JPKIFunc not implemented")
 }
 
 func RegisterImmOperationServer(s *grpc.Server, srv ImmOperationServer) {
@@ -810,6 +838,42 @@ func _ImmOperation_EnrollUser_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImmOperation_CommCA_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommCARequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).CommCA(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/CommCA",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).CommCA(ctx, req.(*CommCARequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImmOperation_JPKIFunc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JPKIFuncRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).JPKIFunc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/JPKIFunc",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).JPKIFunc(ctx, req.(*JPKIFuncRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "immop.ImmOperation",
 	HandlerType: (*ImmOperationServer)(nil),
@@ -909,6 +973,14 @@ var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EnrollUser",
 			Handler:    _ImmOperation_EnrollUser_Handler,
+		},
+		{
+			MethodName: "CommCA",
+			Handler:    _ImmOperation_CommCA_Handler,
+		},
+		{
+			MethodName: "JPKIFunc",
+			Handler:    _ImmOperation_JPKIFunc_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

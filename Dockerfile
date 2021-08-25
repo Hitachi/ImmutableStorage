@@ -1,4 +1,4 @@
-FROM ubuntu:20.10
+FROM ubuntu:20.04
 MAINTAINER eiichiro.oiwa.nm@hitachi.com
 
 RUN mkdir -p /var/lib/ImmutableST/bin

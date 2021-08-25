@@ -1,7 +1,7 @@
 name: imm-client
 base: core20
-version: 1.0.0
-summary: Examples for Immutable Storage client
+version: 1.1.0
+summary: Examples for Immutable Storage client, and a tool for the rsyslog
 description: |
   imm-client.cc, imm-client,c and imm-client.go are examples for C++, C and golang, respectively.
 
@@ -15,6 +15,8 @@ apps:
     command: bin/c_immds
   go:
     command: bin/go_immst
+  rsyslog2imm:
+    command: bin/rsyslog2imm
     
 parts:
   c:
@@ -36,6 +38,11 @@ parts:
     plugin: go
     source: .
     source-subdir: app/example-go
+    source-type: local
+  rsyslog2imm:
+    plugin: go
+    source: .
+    source-subdir: app/rsyslog2imm
     source-type: local
   libimmds:
     plugin: make
