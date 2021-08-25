@@ -24,6 +24,7 @@ import (
 	"immutil"
 	"fabconf"
 	"immclient"
+	"jpkicli"
 
 	"context"
 	"google.golang.org/grpc"
@@ -40,6 +41,7 @@ import (
 	"encoding/asn1"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/base64"
 	"crypto/ecdsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -58,7 +60,7 @@ import (
 	"strings"
 	"bytes"
 	"strconv"
-	"io/ioutil"
+	"os"
 
 	"github.com/golang/protobuf/proto"
 
@@ -126,8 +128,11 @@ const (
 
 	cfgMapFedUser = "-feduser"
 	cfgMapFedGrp = "-fedgrp"
+	cmFedUserLabel = "federatedUser"
 
 	defaultCAPortStr = ":7054"
+	affnJPKIPrefix = "FedJPKI:"
+	affnLDAPPrefix = "FedLDAP:"
 )
 
 type signerState struct {
@@ -1315,7 +1320,7 @@ func readPrivKey(privPem []byte) (privSki [sha256.Size]byte, retErr error) {
 }
 
 func readCertificateFile(certPath string) (*x509.Certificate, error) {
-	certPem, err := ioutil.ReadFile(certPath)
+	certPem, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, fmt.Errorf("could not read " + certPath+ ": " + err.Error())
 	}
@@ -2858,7 +2863,7 @@ func (s *server) InstallChainCode(ctx context.Context, req *immop.InstallCC) (re
 		retErr = fmt.Errorf("unsupported custom chaincode")
 		return
 	}
-	codePkgRaw, err := ioutil.ReadFile(chaincodePath)
+	codePkgRaw, err := os.ReadFile(chaincodePath)
 	if err != nil {
 		retErr = fmt.Errorf("could not read user chaincode")
 		return
@@ -3844,28 +3849,31 @@ func (s *server) RegisterUser(ctx context.Context, req *immop.RegisterUserReques
 		return
 	}
 
+	var adminCert []byte
 	caCli := newCAClient("https://"+caCommonName+defaultCAPortStr)
-	if req.AuthType == "LDAP" {
-		var adminCert []byte
-		adminCert, retErr =  registerLDAPAdmin(caCli, tmpPriv, tmpCert, req)
-		if retErr != nil {
-			return
-		}
-
-		retErr = storeCertID(adminCert)
+	switch req.AuthType {
+	case "LDAP":
+		adminCert, retErr = registerLDAPAdmin(caCli, tmpPriv, tmpCert, req)
+	case "JPKI":
+		adminCert, retErr = registerJPKIAdmin(caCli, tmpPriv, tmpCert, req)
+	default:
+		retErr = fmt.Errorf("unknown authentication type: %s", req.AuthType)
+	}
+	if retErr != nil {
 		return
 	}
-
-	retErr = fmt.Errorf("unknown authentication type: %s", req.AuthType)
+	
+	retErr = storeCertID(adminCert, req.AuthType)
 	return
 }
 
 type certID struct {
 	SerialNumber string `json:"sn"`
 	AuthorityKeyId []byte `json:"aki"`
+	AuthType string `json:"authtype,omitempty"`
 }
 
-func storeCertID(certPem []byte) error {
+func storeCertID(certPem []byte, authType string) error {
 	cert, _, err := immutil.ReadCertificate(certPem)
 	if err != nil {
 		return err
@@ -3893,7 +3901,7 @@ func storeCertID(certPem []byte) error {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: cfgMapName,
 				Labels: map[string] string{
-					"config": "federatedUser",
+					"config": cmFedUserLabel,
 				},
 			},
 		}
@@ -3908,6 +3916,9 @@ func storeCertID(certPem []byte) error {
 		SerialNumber: cert.SerialNumber.Text(62),
 		AuthorityKeyId: cert.AuthorityKeyId,
 	}
+	if authType != "LDAP" {
+		id.AuthType = authType
+	}
 
 	certIDRaw, err := json.Marshal(id)
 	if err != nil {
@@ -3920,6 +3931,56 @@ func storeCertID(certPem []byte) error {
 	fedMap.BinaryData[fedName] = certIDRaw
 	_, err = cfgMapClient.Update(context.TODO(), fedMap, metav1.UpdateOptions{})
 	return err
+}
+
+func loadBaseCertForJPKI(caName string) (*x509.Certificate, error) {
+	cfgMapClient, err := immutil.K8sGetConfigMapsClient()
+	if err != nil {
+		return nil, err
+	}
+
+	cfgMapName := caName + cfgMapFedGrp
+	cfgMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
+	if err != nil || cfgMap == nil {
+		return nil, fmt.Errorf("There is no ConfigMap for JPKI administrator on this machine")
+	}
+	
+	if cfgMap.BinaryData == nil  || len(cfgMap.BinaryData) == 0 {
+		return nil, fmt.Errorf("unexpected configuration for JPKI administrator")
+	}
+
+	var certIDRaw []byte
+	var adminName string
+	id := &certID{}
+	foundF := false
+	for adminName, certIDRaw = range cfgMap.BinaryData {
+		err = json.Unmarshal(certIDRaw, id)
+		if err != nil {
+			return nil, fmt.Errorf("corrupted configuration for JPKI administator")
+		}
+
+		if id.AuthType == "JPKI" {
+			foundF = true
+			break
+		}
+	}
+
+	if foundF == false {
+		return nil, fmt.Errorf("There is no administrator for JPKI in a ConfigMap")
+	}
+	
+	sn := &big.Int{}
+	sn.SetString(id.SerialNumber, 62)
+	baseCert := &x509.Certificate{
+		SerialNumber: sn,
+		Subject: pkix.Name{
+			CommonName: "@" + adminName,
+			OrganizationalUnit: []string{"client"},
+		},
+		AuthorityKeyId: id.AuthorityKeyId,
+	}
+
+	return baseCert, nil
 }
 
 func loadBaseCert(username, caName string) (*x509.Certificate, error) {
@@ -3936,6 +3997,9 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 		fedName = tmpStrs[1]
 		adminName = "@"+fedName
 		cfgMapSuffix = cfgMapFedGrp
+		if username == adminName {
+			return nil, fmt.Errorf("administrator")
+		}
 	}
 
 	cfgMapName := caName + cfgMapSuffix
@@ -4002,7 +4066,7 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	baseCert, err := loadBaseCert(username, caName)
 	if err != nil {
 		// request to CA
-		reply.Cert, retErr = caCli.enrollCAUser(username, req)
+		reply.Cert, retErr = caCli.enrollCAUser(username, req.Secret, enrollReq)
 		return
 	}
 
@@ -4014,12 +4078,12 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	
 	// authentication success
 	if tmpID.Name == username {
-		reply.Cert, retErr = caCli.reenrollCAUser(tmpID, req)
+		reply.Cert, retErr = caCli.reenrollCAUser(tmpID, enrollReq)
 		return
 	}
 
 	// register and enroll user
-	reply.Cert, retErr = caCli.registerAndEnrollUser(tmpID, username, req)
+	reply.Cert, retErr = caCli.registerAndEnrollUser(tmpID, username, enrollReq)
 	return
 }
 
@@ -4044,23 +4108,156 @@ func (s *server) authenticateFedUser(caCli *caClient, baseCert *x509.Certificate
 		adminName = "@" + tmpStrs[1]
 	}
 	
-	id = &immclient.UserID{Name: adminName, Priv: tmpPriv, Cert: tmpCert}
+	id = &immclient.UserID{Name: adminName, Priv: tmpPriv, Cert: tmpCert, Client: caCli,}
 	adminAttr, err := id.GetIdentity(caCli.urlBase, adminName)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return
 	}
 
-	err = authenticateLDAPUser(adminAttr, username, secret)
+	if strings.HasPrefix(adminAttr.Affiliation, affnLDAPPrefix) {
+		err = authenticateLDAPUser(adminAttr, username, secret)
+	} else if strings.HasPrefix(adminAttr.Affiliation, affnJPKIPrefix) {
+		retErr = fmt.Errorf("unsupported authentication type ")
+		return
+	} else {
+		retErr = fmt.Errorf("unknown authentication type")
+		return
+	}
+	
 	if err != nil {
 		if err.Error() == "invalid user" {
 			// another authentication type
 		}
+		
 		retErr = fmt.Errorf("authentication error")
 		return
 	}
 
 	return // success
+}
+
+func (s *server) CommCA(ctx context.Context, req *immop.CommCARequest) (reply *immop.CommCAReply, retErr error) {
+	reply = &immop.CommCAReply{}
+	token := strings.SplitN(req.Token, ".", 2)
+	certRaw, err := base64.StdEncoding.DecodeString(token[0])
+	if err != nil {
+		retErr = fmt.Errorf("unexpected user")
+		return
+	}
+
+	cert, _, err := immutil.ReadCertificate(certRaw)
+	if err != nil {
+		retErr = fmt.Errorf("could not parse a certificate: %s", err)
+		return
+	}
+
+	caName := s.parentCert.Subject.CommonName
+	if cert.Issuer.CommonName != caName {
+		retErr = fmt.Errorf("unexpected user")
+		return
+	}
+
+	urlBase := "https://" + caName + defaultCAPortStr
+	cli := newCAClient(urlBase)
+	
+	var rsp []byte
+	rsp, retErr = cli.RequestCA(req)
+	if retErr != nil {
+		return
+	}
+
+	reply.Rsp, retErr = modifyCAResponse(cert, req, rsp)
+	return // success
+}
+
+func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []byte) (retRsp []byte, retErr error) {
+	switch req.Func {
+	case "GetAllIdentities":
+		adminID, err := getAdminJPKI(user.Issuer.CommonName)
+		if err != nil  || adminID.Name != user.Subject.CommonName {
+			break
+		}
+
+		ids := &immclient.GetAllIDsResponse{}
+		reply := &immclient.Response{Result: ids}
+		err = json.Unmarshal(rsp, reply)
+		if err != nil || len(reply.Errors) > 0 {
+			break
+		}
+
+		for i, _ := range ids.Identities {
+			ids.Identities[i].Attributes = removePubKeyAttr(&ids.Identities[i].Attributes)
+		}
+
+		retRsp, err = json.Marshal(reply)
+		if err != nil {
+			retErr = fmt.Errorf("failed to marshal a response: %s", err)
+			return
+		}
+		return // success
+	case "GetIdentity":
+		adminID, err := getAdminJPKI(user.Issuer.CommonName)
+		if err != nil  || adminID.Name != user.Subject.CommonName {
+			break
+		}
+
+		id := &immclient.IdentityResponse{}
+		reply := &immclient.Response{Result: id}
+		err = json.Unmarshal(rsp, reply)
+		if err != nil || len(reply.Errors) > 0 {
+			break
+		}
+
+		id.Attributes = removePubKeyAttr(&id.Attributes)
+		retRsp, err = json.Marshal(reply)
+		if err != nil {
+			retErr = fmt.Errorf("failed to marshal a response: %s", err)
+			return
+		}
+		return // success
+	}
+
+	retRsp = rsp
+	return
+}
+
+func removePubKeyAttr(attrs *[]immclient.Attribute) (newAttrs []immclient.Attribute) {
+	for _, attr := range *attrs {
+		if attr.Name == "JPKI.AuthPub" || attr.Name == "JPKI.SignPub" {
+			continue
+		}
+		
+		newAttrs = append(newAttrs, attr)
+	}
+	return
+}
+
+func (s *server) JPKIFunc(ctx context.Context, req *immop.JPKIFuncRequest) (reply *immop.JPKIFuncReply, retErr error) {
+	reply = &immop.JPKIFuncReply{}
+
+	switch req.Func {
+	case jpkicli.FGetRequiredPrivInfo:
+		var err error
+		reply.Rsp, err = getRequiredPrivInfo(s.parentCert.Subject.CommonName)
+		if err != nil {
+			//retErr = fmt.Errorf("failed to get an information for JPKI")
+			retErr = fmt.Errorf("failed to get an information for JPKI: " + err.Error())
+			return
+		}
+	case jpkicli.FRegisterJPKIUser:
+		reply.Rsp, retErr = registerJPKIUser(s.parentCert.Subject.CommonName, req.Req)
+	case jpkicli.FEnrollJPKIUser:
+		reply.Rsp, retErr = enrollJPKIUser(s.parentCert.Subject.CommonName, req.Req)
+	case jpkicli.FGetJPKIUsername:
+		reply.Rsp, retErr = getJPKIUsername(s.parentCert.Subject.CommonName, req.Req)
+	case jpkicli.FDebugData:
+		reply.Rsp, retErr = debugDataJPKI(s.parentCert.Subject.CommonName, req.Req)
+	default:
+		retErr = fmt.Errorf("unknown function")
+	}
+
+	return
 }
 
 func main() {
