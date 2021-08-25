@@ -28,14 +28,11 @@ import (
 	"encoding/json"
 	"encoding/base64"
 	"encoding/asn1"
-	"net/http"
-	"bytes"
 
 	"math/big"
 
 	"fmt"
 	"errors"
-	"io/ioutil"
 	"time"
 	"strings"
 
@@ -264,11 +261,14 @@ type ModifyIdentityRequest struct {
 	CAName         string      `json:"caname,omitempty" skip:"true"`
 }
 
+type CAClientInf interface {
+	RequestCA(req *immop.CommCARequest) (rsp []byte, retErr error)
+}
 
 type UserID struct {
 	Name string
 	Priv, Cert []byte
-	Client *http.Client
+	Client CAClientInf
 }
 
 type InstanceValue struct {
@@ -283,12 +283,6 @@ const (
 	StorageAdmin = "StorageAdmin"
 	GrpAdmin = "StorageGrpAdmin"
 )
-
-var client = &http.Client{}
-
-func GetDefaultHttpClient() (*http.Client) {
-	return client
-}
 
 func CreateCSR(username string) (privPem, csrPem []byte, retErr error) {
 	// generate key pair
@@ -358,52 +352,93 @@ func EnrollUser(username string, validityPeriod time.Duration, enSecret, urlBase
 	return &UserID{Name: username, Priv: privPem, Cert: reply.Cert, }, nil
 }
 
-func SendReqCA(req *http.Request, reply *Response) (retErr error){
-	resp, err := client.Do(req)
-	if err != nil {
-		retErr = fmt.Errorf("failed to request: " + err.Error())
-		return
-	}
-	if resp.Body == nil {
-		retErr = fmt.Errorf("responded body is nil")
-		return
-	}
-	defer func() {
-		err := resp.Body.Close()
-		if err != nil {
-			print("log: failed to close the body: " + err.Error() + "\n")
-		}
-	}()
-
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		retErr = errors.New("could not read the body: " + err.Error())
-		return
-	}
-
-	err = json.Unmarshal(respBody, reply)
-	if err != nil {
-		retErr = errors.New("unexpected body: " + err.Error())
-	}
-	if len(reply.Errors) > 0 {
-		var retStr string
-		for _, errMsg := range reply.Errors {
-			retStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x\n", errMsg.Code)
-		}
-		
-		retErr = errors.New(retStr)
-		return
-	}
-
-	return // success
+type ReqCAParam struct {
+	Func string
+	URLBase string
+	URI string
+	Method string
+	Param interface{}
+	Result interface{}
 }
 
+func (id *UserID) RequestCA(urlBase string, req *immop.CommCARequest) ([]byte, error) {
+	if id.Client != nil {
+		return id.Client.RequestCA(req)
+	}
+	
+	conn, err := grpc.Dial(urlBase, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true,})))
+	if err != nil {
+		return nil, errors.New("failed to connect to a server: " + err.Error())
+	}
+	defer conn.Close()
+
+	cli := immop.NewImmOperationClient(conn)
+	reply, err := cli.CommCA(context.Background(), req)
+	if err != nil {
+		return nil, errors.New("failed to communicate with the CA: " + err.Error())
+	}
+
+	return reply.Rsp, nil // success
+}
+
+func (id *UserID) SendReqCA(req *ReqCAParam) error {
+	var reqData []byte
+	var err error
+	if req.Param != nil {
+		reqData, err = json.Marshal(req.Param)
+		if err != nil {
+			return err
+		}
+	}
+	
+	token, err := id.genToken(reqData, req.Method, req.URI)
+	if err != nil {
+		return err
+	}
+
+	reqCA := &immop.CommCARequest{
+		Func: req.Func,
+		URI: req.URI,
+		Token: token,
+		Param: reqData,
+	}
+
+	rsp, err := id.RequestCA(req.URLBase, reqCA)
+	if err != nil {
+		return err
+	}
+	
+	reply := &Response{Result: req.Result}
+	err = json.Unmarshal(rsp, reply)
+	if err != nil {
+		reply.Result = nil
+		err = json.Unmarshal(rsp, reply)
+		if err != nil {
+			return errors.New("unexpected body: " + err.Error())
+		}
+	}
+	if len(reply.Errors) > 0 {
+		var errStr string
+		for _, errMsg := range reply.Errors {
+			errStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x\n", errMsg.Code)
+		}
+		
+		return errors.New(errStr)
+	}
+	
+	return nil // success
+}
 
 type ECDSASignature struct {
         R, S *big.Int
 }
 
-func (id *UserID) genToken(req_data []byte, req *http.Request, uri string) (string, error) {
+func (id *UserID) genToken(req_data []byte, method, uri string) (string, error) {
+	if id.Cert == nil {
+		auth := id.Name + ":" + string(id.Priv)
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth)), nil // set a secret insted of a token
+	}
+	
 	privData, _ := pem.Decode(id.Priv)
 	if x509.IsEncryptedPEMBlock(privData) {
 		return "", errors.New("not support encrypted PEM")
@@ -423,14 +458,9 @@ func (id *UserID) genToken(req_data []byte, req *http.Request, uri string) (stri
 	reqBase64 := base64.StdEncoding.EncodeToString(req_data)
 	certBase64 := base64.StdEncoding.EncodeToString(id.Cert)
 	payload := reqBase64 + "." + certBase64
-	if req != nil {
-		queryStr := strings.SplitN(req.URL.RequestURI(), uri, 2)
-		if len(queryStr) != 2 {
-			return "", errors.New("invalid URI")
-		}
-		uriSrc := uri + queryStr[1]
-		uriBase64 := base64.StdEncoding.EncodeToString([]byte(uriSrc))
-		payload = req.Method + "." + uriBase64 + "." + payload
+	if method != "" {
+		uriBase64 := base64.StdEncoding.EncodeToString([]byte(uri))
+		payload = method + "." + uriBase64 + "." + payload
 	}
 	digest := sha256.Sum256( []byte(payload) )
 	r, s, err := ecdsa.Sign(rand.Reader, privKey, digest[:])
@@ -450,16 +480,6 @@ func (id *UserID) genToken(req_data []byte, req *http.Request, uri string) (stri
 	return token, nil
 }
 
-func (id *UserID) AddToken(req_data []byte, req *http.Request, uri string) error {
-	token, err := id.genToken(req_data, req, uri)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("authorization", token)
-	return nil
-}
-
 // GetAllIDsResponse is the response from the GetAllIdentities call
 type GetAllIDsResponse struct {
         Identities []IdentityInfo `json:"identities"`
@@ -473,8 +493,6 @@ type Attribute struct {
         ECert bool   `json:"ecert,omitempty"`
 }
 
-
-
 // IdentityResponse is the response from the any add/modify/remove identity call
 type IdentityResponse struct {
         ID             string      `json:"id" skip:"true"`
@@ -487,29 +505,24 @@ type IdentityResponse struct {
 }
 
 func (id *UserID) GetAllIdentities(urlBase string) ([]IdentityInfo, error) {
-	uri := "/identities"
-	url := urlBase + uri
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, errors.New("failed to create a request for getting identities: " + err.Error())
-	}
-
-	if err = id.AddToken(nil, req, uri); err != nil {
-		return nil, err
-	}
-
 	ids := &GetAllIDsResponse{}
-	rsp := &Response{Result: ids}
-	err = SendReqCA(req, rsp)
+	req := &ReqCAParam{
+		Func: "GetAllIdentities",
+		URLBase: urlBase,
+		URI: "/identities",
+		Method: "GET",
+		Result: ids,
+	}
+	
+	err := id.SendReqCA(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("failed to get all identities: " + err.Error())
 	}
         
 	return ids.Identities, nil
 }
 
 
-// RegistrationRequest for a new identity
 type RegistrationRequest struct {
 	// Name is the unique name of the identity
 	Name string `json:"id" help:"Unique name of the identity"`
@@ -550,99 +563,71 @@ type UserPrivilege struct {
 }
 
 func (id *UserID) GetAllAffiliations(urlBase string) (*AffiliationResponse, error) {
-	uri := "/affiliations"
-	url := urlBase + uri
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, errors.New("failed to create a request for getting all affiliations: " + err.Error())
+	affiliations := &AffiliationResponse{}	
+	req := &ReqCAParam{
+		Func: "GetAllAffiliations",
+		URLBase: urlBase,
+		URI: "/affiliations",
+		Method: "GET",
+		Result: affiliations,
 	}
-
-	err = id.AddToken(nil, req, uri)
+	
+	err := id.SendReqCA(req)
 	if err != nil {
-		return nil, err
-	}
-
-	affiliations := &AffiliationResponse{}
-	rsp := &Response{Result: affiliations}
-	err = SendReqCA(req, rsp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send a request to CA: " + err.Error())
+		return nil, errors.New("failed to get all affiliations: " + err.Error())
 	}
 
 	return affiliations, nil
 }
 
 func (id *UserID) GetAffiliation(urlBase, affiliation string) (*AffiliationResponse, error) {
-	uri := "/affiliations/" + affiliation
-	url := urlBase + uri
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, errors.New("failed to create a request for getting affiliation: " + err.Error())
-	}
-
-	err = id.AddToken(nil, req, uri)
-	if err != nil {
-		return nil, err
-	}
-
 	info := &AffiliationResponse{}
-	rsp := &Response{Result: info}
-	err = SendReqCA(req, rsp)
+	req := &ReqCAParam{
+		Func: "GetAffiliation",
+		URLBase: urlBase,
+		URI: "/affiliations/" + affiliation,
+		Method: "GET",
+		Result: info,
+	}
+
+	err := id.SendReqCA(req)
 	if err != nil {
-		return nil, errors.New("failed to send a request to CA: " + err.Error())
+		return nil, errors.New("failed to get the " + affiliation + " affiliation: " + err.Error())
 	}
 
 	return info, nil
 }
 
 func (id *UserID) AddAffiliation(urlBase, affiliation string) error {
-	uri := "/affiliations"	
-	url := urlBase + uri
-	req := &AddAffiliationRequest{Name: affiliation}
-	
-	reqData, err := json.Marshal(req)
-	if err != nil {
-		return errors.New("failed to marshal a request: " + err.Error())
-	}
-
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData) )
-	if err != nil {
-		return errors.New("failed to create a POST request: " + err.Error())
-	}
-	httpReq.URL.RawQuery = "force=false"
-
-	err = id.AddToken(reqData, httpReq, uri)
-	if err != nil {
-		return err
-	}
-
 	affiliationRsp := &AffiliationResponse{}
-	rsp := &Response{Result: affiliationRsp}
-	err = SendReqCA(httpReq, rsp)
+	req := &ReqCAParam{
+		Func: "AddAffiliation",
+		URLBase: urlBase,
+		URI: "/affiliations" + "?force=false",
+		Method: "POST",
+		Param: &AddAffiliationRequest{Name: affiliation},
+		Result: affiliationRsp,
+	}
+
+	err := id.SendReqCA(req)
 	if err != nil {
-		return err
+		return errors.New("failed to add an affiliation: " + err.Error())
 	}
 	
 	return nil
 }
 
 func (id *UserID) RemoveAffiliation(urlBase, affiliation string) error {
-	uri := "/affiliations/" + affiliation
-	url := urlBase + uri
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return errors.New("failed to create a DELETE request: " + err.Error())
+	req := &ReqCAParam{
+		Func: "RemoveAffiliation",
+		URLBase: urlBase,
+		URI: "/affiliations/" + affiliation + "?force=true",
+		Method: "DELETE",
 	}
-	req.URL.RawQuery = "force=true"
-
-	err = id.AddToken(nil, req, uri)
+	
+	err := id.SendReqCA(req)
 	if err != nil {
-		return err
-	}
-
-	err = SendReqCA(req, &Response{})
-	if err != nil {
-		return err
+		return errors.New("failed to remove the " + affiliation + " affiliation: " + err.Error())
 	}
 
 	return nil
@@ -702,26 +687,17 @@ func (id *UserID) Register(username, secret, ouType string, privilege *UserPrivi
 		req.Secret = secret
 	}
 
-	reqData, err := json.Marshal(req)
-	if err != nil {
-		return "", errors.New("could not create a request: " + err.Error())
+	regReply := &RegistrationResponse{}
+	reqCA := &ReqCAParam{
+		Func: "Register",
+		URLBase: urlBase,
+		URI: "/register",
+		Method: "POST",
+		Param: req,
+		Result: regReply,
 	}
-
-	uri := "/register"
-	url := urlBase + uri
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData) )
-	if err != nil {
-		return "", errors.New("could not create a POST request: " + err.Error())
-	}
-
-	err = id.AddToken(reqData, httpReq, uri)
-	if err != nil {
-		return "", err
-	}
-
-	regReply := &RegistrationResponse{}     
-	rsp := &Response{Result: regReply}
-	err = SendReqCA(httpReq, rsp)
+	
+	err := id.SendReqCA(reqCA)
 	if err != nil {
 		return "", err
 	}
@@ -823,15 +799,10 @@ func (id *UserID) ImportService(serviceData []byte, url string) (err error) {
 
 	cli := immop.NewImmOperationClient(conn)
 
-	token, err := id.genToken(nil, nil, "")
-	if err != nil {
-		return
-	}
-
 	peer := &immop.ExportServiceReply{}
 	proto.Unmarshal(serviceData, peer)
 	
-	req := &immop.ImportServiceRequest{Service: peer, CAToken: token, }
+	req := &immop.ImportServiceRequest{Service: peer, }
 	req.Cred, err = id.signMsg("ImportService", req)
 	if err != nil {
 		return
@@ -849,13 +820,7 @@ func (id *UserID) RemoveServiceFromCh(hostName, portName, url string) (err error
 	defer conn.Close()
 
 	cli := immop.NewImmOperationClient(conn)
-
-	token, err := id.genToken(nil, nil, "")
-	if err != nil {
-		return
-	}
-
-	req := &immop.RemoveServiceRequest{Peer: &immop.ServiceSummary{Hostname: hostName, Port: portName}, CAToken: token, }
+	req := &immop.RemoveServiceRequest{Peer: &immop.ServiceSummary{Hostname: hostName, Port: portName}, }
 	req.Cred, err = id.signMsg("RemoveServiceFromCh", req)
 	if err != nil {
 		return
@@ -897,13 +862,7 @@ func (id *UserID) CreateChannel(channelID, url string) (err error) {
 	defer conn.Close()
 
 	cli := immop.NewImmOperationClient(conn)
-
-	token, err := id.genToken(nil, nil, "")
-	if err != nil {
-		return
-	}
-
-	req := &immop.CreateChannelRequest{ChannelID: channelID, CAToken: token, }
+	req := &immop.CreateChannelRequest{ChannelID: channelID, }
 	req.Cred, err = id.signMsg("CreateChannel", req)
 	if err != nil {
 		return
@@ -1488,71 +1447,51 @@ func (id *UserID) HasStorageGrpAdmin() bool {
 }
 
 func (id *UserID) GetIdentity(urlBase, userName string) (*IdentityResponse, error) {
-	uri := "/identities/" + userName
-	url := urlBase + uri
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, errors.New("failed to create a request for getting ID: " + err.Error())
-	}
-
-	err = id.AddToken(nil, req, uri)
-	if err != nil {
-		return nil, err
+	user := &IdentityResponse{}	
+	req := &ReqCAParam{
+		Func: "GetIdentity",
+		URLBase: urlBase,
+		URI: "/identities/" + userName,
+		Method: "GET",
+		Result: user,
 	}
 	
-	user := &IdentityResponse{}
-	rsp := &Response{Result: user}
-	err = SendReqCA(req, rsp)
+	err := id.SendReqCA(req)
 	if err != nil {
-		return nil, errors.New("failed to send a request to CA: " + err.Error())
+		return nil, errors.New("failed to get an identity: " + err.Error())
 	}
 
 	return user, nil
 }
 
 func (id *UserID) RemoveIdentity(urlBase, userName string) error {
-	uri := "/identities/" + userName
-	url := urlBase + uri
-	req, err := http.NewRequest("DELETE", url, nil)
+	req := &ReqCAParam{
+		Func: "RemoveIdentity",
+		URLBase: urlBase,
+		URI: "/identities/" + userName,
+		Method: "DELETE",
+	}
+	
+	err := id.SendReqCA(req)
 	if err != nil {
 		return errors.New("failed to remove " + userName + ": " + err.Error())
-	}
-
-	err = id.AddToken(nil, req, uri)
-	if err != nil {
-		return err
-	}
-
-	err = SendReqCA(req, &Response{})
-	if err != nil {
-		return err
 	}
 
 	return nil
 }
 
 func (id *UserID) RevokeIdentity(urlBase, userName string) error {
-	uri := "/revoke"
-	url := urlBase + uri
-
-	reqData, err := json.Marshal(&RevocationRequest{Name: userName})
-	if err != nil {
-		return errors.New("could not marshal a request for revocation")
+	req := &ReqCAParam{
+		Func: "RevokeIdentity",
+		URLBase: urlBase,
+		URI: "/revoke",
+		Method: "POST",
+		Param: &RevocationRequest{Name: userName},
 	}
-
-	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(reqData))
+	
+	err := id.SendReqCA(req)
 	if err != nil {
-		return errors.New("could not create a request")
-	}
-
-	err = id.AddToken(reqData, httpReq, uri)
-	if err != nil {
-		return err
-	}
-
-	err = SendReqCA(httpReq, &Response{})
-	if err != nil {
-		return err
+		return errors.New("failed to revocate " + userName + ": " + err.Error())
 	}
 	return nil
 }
@@ -1571,34 +1510,42 @@ func RandStr(num int) string {
 	return randStr
 }
 
-func (id *UserID) ChangeSecret(urlBase, userName, secret string) (string, error) {
-	uri := "/identities/" + userName
-	url := urlBase + uri
-
-	if secret == "" {
-		secret = RandStr(8)
-	}
-	reqData, err := json.Marshal(&ModifyIdentityRequest{Secret: secret})
-	if err != nil {
-		return "", errors.New("could not marshal a request for modifying secret")
-	}
-
-	httpReq, err := http.NewRequest("PUT", url, bytes.NewReader(reqData))
-	if err != nil {
-		return "", errors.New("could not create a request")
-	}
-
-	err = id.AddToken(reqData, httpReq, uri)
-	if err != nil {
-		return "", err
-	}
-
-	err = SendReqCA(httpReq, &Response{})
-	if err != nil {
-		return "", err
+func (id *UserID) ModifyIdentity(urlBase, username string, param *ModifyIdentityRequest) error {
+	req := &ReqCAParam{
+		Func: "ModifyIdentity",
+		URLBase: urlBase,
+		URI: "/identities/" + username,
+		Method: "PUT",
+		Param: param,
 	}
 	
-	return secret, nil
+	return id.SendReqCA(req)
+}
+
+func (id *UserID) ChangeSecret(urlBase, userName, secret string) (string, error) {
+	err := id.ModifyIdentity(urlBase, userName, &ModifyIdentityRequest{Secret: secret})
+	if err != nil {
+		return "", errors.New("failed to change a secret for " + userName + ": " + err.Error())
+	}
+	
+	return secret, nil // success
+}
+
+func (id *UserID) EnableEnrollment(urlBase, username string) error {
+	err := id.ModifyIdentity(urlBase, username, &ModifyIdentityRequest{MaxEnrollments: -1 /* unlimited */})
+	if err != nil {
+		return errors.New("failed to enable enrollment for " + username + ": " + err.Error())
+	}
+	return nil // success
+}
+
+func (id *UserID) DisableEnrollment(urlBase, username string) error {
+	err := id.ModifyIdentity(urlBase, username, &ModifyIdentityRequest{MaxEnrollments: -2, /*disable*/})
+	if err != nil {
+		return fmt.Errorf("failed to disable enrollment: %s", err)
+	}
+	
+	return nil // success
 }
 
 func (id *UserID) RegisterUser(authType string, authParam []byte, url string) (secret string, retErr error) {
