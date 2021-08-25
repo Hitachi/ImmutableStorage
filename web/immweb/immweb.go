@@ -39,7 +39,6 @@ import (
 )
 
 const (
-	casrvPath = "/ca"
 	immsrvPath = "/immsrv"
 )
 
@@ -65,11 +64,19 @@ func RegisterCallback() {
 	gl.Set("removeID", js.FuncOf(removeID))
 	gl.Set("revokeID", js.FuncOf(revokeID))
 	gl.Set("dismiss", js.FuncOf(dismiss))
+	gl.Set("enableEnrollment", js.FuncOf(enableEnrollment))
+	gl.Set("disableEnrollment", js.FuncOf(disableEnrollment))
+	gl.Set("onOffEnrollment", js.FuncOf(onOffEnrollment))
 	gl.Set("changeSecret", js.FuncOf(changeSecret))
 	gl.Set("exportKey", js.FuncOf(exportKey))
 	gl.Set("encryptKey", js.FuncOf(encryptKey))
 	gl.Set("reqBoxOk", js.FuncOf(reqBoxOk))
 	gl.Set("reqBoxCancel", js.FuncOf(reqBoxCancel))
+}
+
+func getImmsrvURL() string {
+	loc := js.Global().Get("location")
+	return loc.Get("protocol").String() + "//" + loc.Get("host").String()+immsrvPath
 }
 
 func isCurIdEncrypted() bool {
@@ -123,8 +130,7 @@ func MakeFirstTabs(){
 
 func enroll(this js.Value, i []js.Value) interface{} {
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()+immsrvPath
+	url := getImmsrvURL()
 	
 	username := doc.Call("getElementById", "username").Get("value").String()
 	enSecret := doc.Call("getElementById", "secret").Get("value").String()
@@ -210,9 +216,7 @@ func updateListUserContent(){
 			return
 		}
 
-		loc := js.Global().Get("location")
-		url := loc.Get("protocol").String() + "//" + loc.Get("host").String()
-		users, err := id.GetAllIdentities(url+casrvPath)
+		users, err := id.GetAllIdentities(getImmsrvURL())
 		if err != nil {
 			print("error: getAllIdentities: " +  err.Error() + "\n")
 			return
@@ -245,21 +249,33 @@ func makeListUserInternal(){
 		html += `  </div>`
 		html += `</div>`
 		html += "</td>"
-		html += "<td>" + user.GetUserType() + "</td>" // Type
+		html += `<td onmousedown="dismiss()">` + user.GetUserType() + "</td>" // Type
 
-		strMaxEnroll := "unlimited"
+		strMaxEnroll := strconv.Itoa(user.MaxEnrollments)
 		if user.MaxEnrollments == -1 {
-			strMaxEnroll = strconv.Itoa(user.MaxEnrollments)
+			strMaxEnroll = "unlimited"
 		}
-		html += "<td>" + strMaxEnroll + "</td>" // Max Enrollments
+		if user.MaxEnrollments == 0 {
+			strMaxEnroll = "disabled"
+		}
 
-		html += "<td>"
+		html += `<td  class="dropdown" onmousedown="onOffEnrollment(event, '` + user.ID + `')">`
+		html += `<div class="dropdownMenu">`
+		html += `  <div id="setMaxEnrollments` + user.ID + `">` + strMaxEnroll + `</div>`
+		html += `  <div class="dropdownContent" id="dropdownSetMaxEnrollments` + user.ID + `">`
+		html += `    <a href="javascript:void(0);" onclick="enableEnrollment('` +  user.ID + `')">Enable</a>`
+		html += `    <a href="javascript:void(0);" onclick="disableEnrollment('` + user.ID + `')">Disable</a>`
+		html += `  </div>`
+		html += `</div>`
+		html += "</td>"
+		
+		html += `<td onmousedown="dismiss()">`
 		for _, attr := range user.Attributes {
 			html += attr.Name + ":" + attr.Value + " enroll_cert:" + strconv.FormatBool(attr.ECert) + "<br>"
 		}
 		html += "</td>"
 
-		html += "<td>" + user.Affiliation + "</td>" // Affiliation
+		html += `<td onmousedown="dismiss()">` + user.Affiliation + "</td>" // Affiliation
 		html += "</tr>"
 	}
 
@@ -410,21 +426,24 @@ func updateSwitchUserContent() {
 }
 
 func makeUserTab(username string, id *immclient.UserID) {
-	loc := js.Global().Get("location")
-	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
+	caURL := getImmsrvURL()
 
 	doc := js.Global().Get("document")
 	tabBtn := doc.Call("getElementById", "userTab")
 	tabBtn.Set("hidden", false)
 	tabBtn.Set("innerHTML", username)
 
-	hasRegistrarRoleF := false
+	registerTabF := false
+	listUserTabF := false
 	if id != nil {
 		idRsp, err := id.GetIdentity(caURL, username)
 		if err == nil {
 			for _, attr := range idRsp.Attributes {
-				if attr.Name == "hf.Registrar.Roles" && attr.Value == "*" {
-					hasRegistrarRoleF = true
+				if attr.Name == "hf.Registrar.Roles" && attr.Value != "" {
+					listUserTabF = true
+					if attr.Value == "*" {
+						registerTabF = true
+					}
 					break
 				}
 			}
@@ -434,8 +453,10 @@ func makeUserTab(username string, id *immclient.UserID) {
 	userContent := doc.Call("getElementById", "userContent")
 	html := "<h3>" + username + "</h3>\n"
 	html += `<div class="tab">`
-	if hasRegistrarRoleF {	
+	if registerTabF {	
 		html += `  <button class="tablinks 2" onclick="openTab(event, 2)" id="registerTab">Register</button>`
+	}
+	if listUserTabF {
 		html += `  <button class="tablinks 2" onclick="openTab(event, 2)" id="listUserTab">List User</button>`
 	}
 	
@@ -443,8 +464,10 @@ func makeUserTab(username string, id *immclient.UserID) {
 	html += `  <button class="tablinks 2" onclick="openTab(event, 2)" id="actionTab">Storage Service</button>`
 	html += "</div>"
 
-	if hasRegistrarRoleF {
+	if registerTabF {
 		html += makeRegisterTab()
+	}
+	if listUserTabF {
 		html += makeListUserTab()
 	}
 
@@ -603,6 +626,7 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
                 <select id="authType" onchange="selectedAuthType()">
                   <option value="CA">Certificate authority</option>
                   <option value="LDAP">LDAP</option>
+                  <option value="JPKI">JPKI</option>
                 </select>
               </div>
             </div>
@@ -611,7 +635,7 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
               <div class="cert-input"><input type="text" id="registerSecret"></div>
             </div>
             <div id="authAttrArea" hidden></div>
-            <div class="row" id="gencrlBox">
+            <div class="row" id="gencrlBox" hidden>
               <div class="cert-item"><label>CRL</label></div>
               <div class="cert-input"><label class="checkbox">available<input type="checkbox" id="gencrl"><span class="checkmark"></span> </label></div>
             </div>`
@@ -667,10 +691,13 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 	regSecretAreaHiddenF := false
 	authAttrArea := doc.Call("getElementById", "authAttrArea")
 	authAttrAreaHiddenF := false
+	gencrlBoxArea := doc.Call("getElementById", "gencrlBox")
+	gencrlBoxHiddenF := true
 
 	switch authTypeSel {
 	case "CA":
 		authAttrAreaHiddenF = true
+		gencrlBoxHiddenF = false
 	case "LDAP":
 		html := `
           <div class="row" id="bindLDAPServerArea">
@@ -696,6 +723,35 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
           </div>`
 		authAttrArea.Set("innerHTML", html)
 		regSecretAreaHiddenF = true
+	case "JPKI":
+		
+		html := `
+          <div class="row">
+            <p>Please select privacy information importing from the JPKI card:</p>
+          </div>
+          <div class="row">
+            <label class="radioArea">
+              <input type="radio" name="privacyInfoType" value="publicKey" checked>
+              <span class="radioBox"></span>
+              Only public keys
+            </label>
+          </div>
+          <div class="row">
+            <label class="radioArea">
+              <input type="radio" name="privacyInfoType" value="authCert">
+              <span class="radioBox"></span>
+              The authentication certificate, and a public key in the signature certificate
+            </label>
+          </div>
+          <div class="row">
+            <label class="radioArea">
+              <input type="radio" name="privacyInfoType" value="signCert">
+              <span class="radioBox"></span>
+              The authentication certificate and the signature certificate contained residential address, full name, etc.
+            </label>
+          </div>`
+		authAttrArea.Set("innerHTML", html)
+		regSecretAreaHiddenF = true
 	default:
 		print("unknown authentication type: " + authTypeSel + "\n")
 		return nil
@@ -703,6 +759,7 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 
 	regSecretArea.Set("hidden", regSecretAreaHiddenF)
 	authAttrArea.Set("hidden", authAttrAreaHiddenF)
+	gencrlBoxArea.Set("hidden", gencrlBoxHiddenF)
 	return nil
 }
 
@@ -736,8 +793,8 @@ func register(this js.Value, in []js.Value) interface{}{
 }
 
 func registerAppUser() error {
+	url := getImmsrvURL()
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
 
 	authType := doc.Call("getElementById", "authType").Get("value").String()
 	id, err := websto.GetCurrentID()
@@ -745,25 +802,23 @@ func registerAppUser() error {
 		return err
 	}
 
-	authParamRaw := []byte{}
+	var authParam proto.Message
 	switch authType {
 	case "CA":
-		caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath		
 		secret := doc.Call("getElementById", "registerSecret").Get("value").String()
 		username := doc.Call("getElementById", "registerName").Get("value").String()
-
 		
 		privilege := &immclient.UserPrivilege{
 			GenCRL: doc.Call("getElementById", "gencrl").Get("checked").Bool(),
 		}
-		retSecret, err := id.Register(username, secret, "client", privilege, caURL)
+		retSecret, err := id.Register(username, secret, "client", privilege, url)
 		if err == nil {
 			// success
 			doc.Call("getElementById", "registerSecret").Set("value", retSecret)
 		}
 		return err
 	case "LDAP":
-		authParam := &immop.AuthParamLDAP{
+		authParam = &immop.AuthParamLDAP{
 			BindServer: doc.Call("getElementById", "bindLDAPServer").Get("value").String(),
 			BindDN: doc.Call("getElementById", "bindDN").Get("value").String(),
 			QueryServer: doc.Call("getElementById", "queryLDAPServer").Get("value").String(),
@@ -771,16 +826,26 @@ func registerAppUser() error {
 			Query: doc.Call("getElementById", "queryLDAP").Get("value").String(),
 			UserNameOnCA: doc.Call("getElementById", "registerName").Get("value").String(),
 		}
-		
-		authParamRaw, err = proto.Marshal(authParam)
-		if err != nil {
-			return errors.New("failed to marshal authentication parameter: " + err.Error())
+	case "JPKI":
+		registerNameV := doc.Call("getElementById", "registerName")
+		regName := registerNameV.Get("value").String()
+		if ! strings.HasPrefix(regName, "@") {
+			regName = "@" + regName
+			registerNameV.Set("value", regName)
+		}
+		authParam = &immop.AuthParamJPKI{
+			UserNameOnCA: regName,
+			ImportItems: doc.Call("querySelector", "input[name=\"privacyInfoType\"]:checked").Get("value").String(),
 		}
 	default:
 		return errors.New("unknown authentication type: " + authType)
 	}
 
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	authParamRaw, err := proto.Marshal(authParam)
+	if err != nil {
+		return errors.New("failed to marshal authentication parameter: " + err.Error())
+	}
+	
 	_, err = id.RegisterUser(authType, authParamRaw, url)
 	return err
 }
@@ -807,8 +872,7 @@ func registerStorageGrp() error {
 
 func registerHost(hostname, ou string, privilege *immclient.UserPrivilege) error {
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
-	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
+	caURL := getImmsrvURL()
 	
 	username := doc.Call("getElementById", "registerName").Get("value").String()
 	secret := doc.Call("getElementById", "registerSecret").Get("value").String()
@@ -994,8 +1058,7 @@ func exportService(this js.Value, in []js.Value) interface{} {
 		defer func() { exportServiceLock = 0 }()
 		
 
-		loc := gl.Get("location")
-		url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+		url := getImmsrvURL()
 		serviceData, err := id.ExportService(hostname, url)
 		if err != nil {
 			print("log: " + err.Error() + "\n")
@@ -1024,8 +1087,7 @@ func exportService(this js.Value, in []js.Value) interface{} {
 
 var storageGrpContentLock = int32(0)
 func updateStorageGrpContent() {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	doc := js.Global().Get("document")
 
 	print("log: updateStorageGrpContent\n")
@@ -1103,8 +1165,7 @@ func updateAnchorPeers() {
 			return
 		}
 
-		loc := js.Global().Get("location")
-		url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+		url := getImmsrvURL()
 		doc := js.Global().Get("document")
 
 		exportChBtn := doc.Call("getElementById", "exportChannelBtn")
@@ -1169,8 +1230,7 @@ func addAnchorPeer(this js.Value, in []js.Value) interface{} {
 			return
 		}
 
-		loc := js.Global().Get("location")
-		url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+		url := getImmsrvURL()
 		id.ImportService(peerData, url)
 		updateAnchorPeers()
 	}()
@@ -1182,8 +1242,7 @@ var recordLedgerContentLock = int32(0)
 func updateRecordLedgerContent() {
 	print("log: updateRecordLedgerContent\n")
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 
 	go func() {
 		if atomic.CompareAndSwapInt32(&recordLedgerContentLock, 0, 1) == false {
@@ -1235,8 +1294,7 @@ func updateRecordLedgerContent() {
 
 func selectedStorageGrp(this js.Value, in []js.Value) interface{} {
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	
 	storageGrpSel := doc.Call("getElementById", "readStorageGrp")
 	storageGrp := storageGrpSel.Get("value").String()
@@ -1424,8 +1482,7 @@ func selectedStorageGrp(this js.Value, in []js.Value) interface{} {
 }
 
 func recordLedger(this js.Value, in []js.Value) interface{} {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
@@ -1455,8 +1512,7 @@ func recordLedger(this js.Value, in []js.Value) interface{} {
 
 var readLedgerContentLock = int32(0)
 func updateReadLedgerContent() {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	doc := js.Global().Get("document")
 
 	go func() {
@@ -1502,8 +1558,7 @@ func updateReadLedgerContent() {
 }	
 
 func removeService(this js.Value, in []js.Value) interface{} {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	removeBtn := in[0].Get("target")
 	hostPortName := strings.Split(removeBtn.Get("name").String(), ":")
 
@@ -1521,8 +1576,7 @@ func removeService(this js.Value, in []js.Value) interface{} {
 }
 
 func joinChannel(this js.Value, in []js.Value) interface{} {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 
 	go func() {
 		gl := js.Global()
@@ -1573,8 +1627,7 @@ func joinChannel(this js.Value, in []js.Value) interface{} {
 }
 
 func updateStorageGrpState() {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
@@ -1652,8 +1705,7 @@ func makeJoinChannelBoxContent() (resultBox, okBtn js.Value) {
 
 var exportChannelLock = int32(0)
 func exportChannel(this js.Value, in []js.Value) interface{} {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
@@ -1707,8 +1759,7 @@ func exportChannel(this js.Value, in []js.Value) interface{} {
 
 var enableChannelLock = int32(0)
 func enableChannel(this js.Value, in []js.Value) interface{} {
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 	
 	target := in[0].Get("target")
 	chName := target.Get("name").String()
@@ -1801,8 +1852,7 @@ func confirmEnChMsgOk(in []js.Value){
 var saveLedgerLock = int32(0)
 func saveLedger(this js.Value, in []js.Value) interface{} {
 	doc := js.Global().Get("document")
-	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String() + immsrvPath
+	url := getImmsrvURL()
 
 	storageGrpSel := doc.Call("getElementById", "readStorageGrp")
 	storageGrp := storageGrpSel.Get("value").String()
@@ -1896,11 +1946,8 @@ func dropdownIDFunc(this js.Value, in []js.Value) interface{} {
 
 	//	print("dropdown: " + userID + "\n")
 
-	dropdownContents := doc.Call("getElementsByClassName", "dropdownContent")
-	len := dropdownContents.Length()
-	for i := 0; i < len; i++ {
-		dropdownContents.Index(i).Get("style").Set("display", "none")
-	}
+	closeDropdownContents()
+
 
 	buttonNum := in[0].Get("button").Int()
 	if buttonNum != 0 {
@@ -1928,6 +1975,79 @@ func closeDropdownContents(){
 	}
 }
 
+func enableEnrollment(this js.Value, in []js.Value) interface{} {
+	closeDropdownContents()
+	
+	userID := in[0].String()
+	caURL := getImmsrvURL()
+
+	id, err := websto.GetCurrentID()
+	if err != nil {
+		return nil
+	}
+
+	
+	go func() {
+		err = id.EnableEnrollment(caURL, userID)
+		if err != nil {
+			return
+		}
+		
+		doc := js.Global().Get("document")
+		state := doc.Call("getElementById", "setMaxEnrollments" + userID)
+		if state.IsNull() {
+			return
+		}
+		state.Set("innerHTML", "unlimited")
+	}()
+	
+	return nil
+}
+
+func disableEnrollment(this js.Value, in []js.Value) interface{} {
+	closeDropdownContents()
+	
+	userID := in[0].String()
+	caURL := getImmsrvURL()
+
+	id, err := websto.GetCurrentID()
+	if err != nil {
+		return nil
+	}
+
+	go func() {
+		err = id.DisableEnrollment(caURL, userID)
+		if err != nil {
+			return
+		}
+
+		doc := js.Global().Get("document")
+		state := doc.Call("getElementById", "setMaxEnrollments" + userID)
+		if state.IsNull() {
+			return
+		}
+		state.Set("innerHTML", "disabled")
+	}()
+	return nil
+}
+
+func onOffEnrollment(this js.Value, in []js.Value) interface{} {
+	closeDropdownContents()
+	
+	gl := js.Global()
+	doc := gl.Get("document")
+
+	userID := in[1].String()
+
+	activateContent := doc.Call("getElementById", "dropdownSetMaxEnrollments" + userID)
+	if activateContent.IsNull() {
+		return nil
+	}
+	activateContent.Get("style").Set("display", "block")
+
+	return nil
+}
+
 
 func makeRemoveIdBoxContent(userName string) {
 	gl := js.Global()
@@ -1951,9 +2071,7 @@ func makeRemoveIdBoxContent(userName string) {
 }
 
 func removeIdOk(in []js.Value) {
-	gl := js.Global()
-	loc := gl.Get("location")
-	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
+	caURL := getImmsrvURL()
 	
 	id, err := websto.GetCurrentID()
 	if err != nil {
@@ -2003,9 +2121,7 @@ func makeRevokeIdBoxContent(userName string) {
 func revokeIdOk(in []js.Value) {
 	defer closeReqBox(in)
 	
-	gl := js.Global()
-	loc := gl.Get("location")
-	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String() + casrvPath
+	caURL := getImmsrvURL()
 	
 	id, err := websto.GetCurrentID()
 	if err != nil {
@@ -2061,8 +2177,7 @@ func makeChangeSecretBoxContent(userName string) {
 func changeSecretOk(in []js.Value) {
 	gl := js.Global()
 	doc := gl.Get("document")
-	loc := gl.Get("location")
-	caURL := loc.Get("protocol").String() + "//" + loc.Get("host").String()	+ casrvPath
+	caURL := getImmsrvURL()
 
 	target := in[0].Get("target")
 	userName := target.Get("name").String()
