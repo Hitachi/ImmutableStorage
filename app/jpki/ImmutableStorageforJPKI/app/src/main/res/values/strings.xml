@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Immutable Storage for JPKI</string>
+    <string name="touch_card">Please touch your JPKI card</string>
+    <string name="touch_ok">OK</string>
+    <string name="unexpected_card">This card is not JPKI.</string>
+    <string name="nfc_disabled">NFC is disabled</string>
+</resources>

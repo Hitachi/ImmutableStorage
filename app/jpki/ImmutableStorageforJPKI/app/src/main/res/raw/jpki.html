@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="jpkiweb_style.css">
+  <meta charset="utf-8">
+  <title>Immutable Storage for Android</title>
+</head>
+
+<body>
+  <script src="wasm_exec.js"></script>
+  <script>
+    const sourceBase64 = webAppNfc.readNfcWasm();
+    const binaryString = window.atob(sourceBase64);
+    var sourceLen = binaryString.length;
+    var source = new Uint8Array(sourceLen);
+    for (var i = 0; i < sourceLen; i++) {
+      source[i] = binaryString.charCodeAt(i);
+    }
+
+    const go = new Go();
+    let mod, inst;
+    WebAssembly.instantiate(source.buffer, go.importObject).then( async(result) => {
+      mod = result.module;
+      inst = result.instance;
+      await go.run(inst);
+    });
+  </script>
+
+  <div id="nfcContent"></div>
+  <div id="reqBox" class="reqbox">
+    <div id="reqBoxContent" class="reqboxcontent">
+    </div>
+  </div>
+  
+</body>
+</html>
