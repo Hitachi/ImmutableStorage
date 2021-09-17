@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Immutable Storage for JPKI</string>
+    <string name="touch_card">マイナンバーカードに触れてください </string>
+    <string name="touch_ok">Ok</string>
+    <string name="unexpected_card">このカードはマイナンバーカードではありません</string>
+    <string name="nfc_disabled">NFCが無効です</string>
+</resources>
