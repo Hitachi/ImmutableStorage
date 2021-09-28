@@ -17,19 +17,18 @@ limitations under the License.
 package immutil
 
 import (
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"fmt"
 )
 
 func CopyFile(srcFile, dstFile string, perm os.FileMode) error {
-	srcBuf, err := ioutil.ReadFile(srcFile)
+	srcBuf, err := os.ReadFile(srcFile)
 	if err != nil {
 		return err
 	}
 
-	err = ioutil.WriteFile(dstFile, srcBuf, perm)
+	err = os.WriteFile(dstFile, srcBuf, perm)
 	if err != nil {
 		return err
 	}
