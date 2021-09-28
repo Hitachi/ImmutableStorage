@@ -26,11 +26,12 @@ import (
 	
 	"immop"
 	"immclient"
+	"cacli"
 	
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
-func registerLDAPAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
+func registerLDAPAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
 	authParam := &immop.AuthParamLDAP{}
 	err := proto.Unmarshal(req.AuthParam, authParam)
 	if err != nil {
@@ -76,7 +77,7 @@ func registerLDAPAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.Regi
 	}
 
 	caRegID := &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert, Client: caCli}
-	return caCli.registerAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
+	return caCli.RegisterAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
 }
 
 func connLDAP(serverName string) (*ldap.Conn, error) {

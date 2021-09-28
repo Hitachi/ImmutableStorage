@@ -9,6 +9,7 @@ replace immop => ./immop
 replace fabconf => ./fabconf
 
 require (
+	cacli v0.0.0-00010101000000-000000000000 // indirect
 	fabconf v0.0.0-00010101000000-000000000000
 	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.4.15-0.20200113171025-3fe6c5262873 // indirect
@@ -55,3 +56,5 @@ replace github.com/docker/docker => github.com/docker/engine v17.12.0-ce-rc1.0.2
 replace immclient => ../web/immclient
 
 replace jpkicli => ../app/jpki/clt
+
+replace cacli => ./cacli

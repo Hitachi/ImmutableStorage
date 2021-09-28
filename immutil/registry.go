@@ -21,9 +21,9 @@ import (
 	"net/http"
 	"fmt"
 	"os"
+	"io"
 	"strings"
 	"strconv"
-	"io/ioutil"
 	"encoding/json"
 )
 
@@ -165,7 +165,7 @@ func (regCli *RegClient) sendReq(req *http.Request) (rsp *http.Response, rspBody
 	}
 	defer rsp.Body.Close()
 
-	rspBody, err = ioutil.ReadAll(rsp.Body)
+	rspBody, err = io.ReadAll(rsp.Body)
 	if err != nil {
 		retErr = fmt.Errorf("could not read the body: " + err.Error())
 		return

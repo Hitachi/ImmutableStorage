@@ -33,9 +33,9 @@ static_resources:
                 expose_headers: custom-header-1,grpc-status,grpc-message
                 allow_credentials: true
           http_filters:
-          - name: envoy.grpc_web
-          - name: envoy.cors
-          - name: envoy.router
+          - name: envoy.filters.http.grpc_web
+          - name: envoy.filters.http.cors
+          - name: envoy.filters.http.router
       transport_socket:
         name: envoy.transport_sockets.tls
         typed_config:

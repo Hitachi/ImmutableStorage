@@ -18,7 +18,7 @@ package immutil
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"crypto/x509/pkix"
 	"gopkg.in/yaml.v2"
 )
@@ -41,7 +41,7 @@ const (
 	
 	ImmHttpdImg = "library/httpd:2.4.46"
 
-	ImmSrvImg = "library/ubuntu:20.10"
+	ImmSrvImg = "library/ubuntu:20.04"
 	EnvoyImg = "envoyproxy/envoy:v1.14.6"
 
 	ChainCcenvImg = "hyperledger/fabric-ccenv:1.4.11"
@@ -59,6 +59,7 @@ const (
 	defaultCertProvince = `["Shinagawa"]`
 
 	workVolume = "work-vol"
+	ImmsrvExpDir = "/export"
 )
 
 type ImmConfig struct {
@@ -74,7 +75,7 @@ func ReadConfigWithDefaultFile(org string) (config *ImmConfig, retErr error) {
 }
 
 func ReadConfigWithFile(org, confFile string) (config *ImmConfig, retErr error) {
-	confBuf, err := ioutil.ReadFile(confFile)
+	confBuf, err := os.ReadFile(confFile)
 	if err != nil {
 		retErr = fmt.Errorf("could not read " + confFile + ": " + err.Error())
 		return

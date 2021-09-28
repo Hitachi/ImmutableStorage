@@ -9,12 +9,13 @@ COPY script/imms.sh ./
 
 RUN mkdir -p /var/lib/ImmutableST/tmpl/httpd/html
 WORKDIR /var/lib/ImmutableST/tmpl/httpd/html
-COPY ./web/immDS.wasm ./web/ImmutableDS.css ./web/index.html ./web/wasm_exec.js ./
+COPY ./web/immDS.wasm.br ./web/immDS.wasm.gz ./web/ImmutableDS.css ./web/index.html ./web/wasm_exec.js ./
 
-RUN mkdir -p /var/lib/ImmutableST/tmpl/immsrv
+RUN mkdir -p /var/lib/ImmutableST/tmpl/immsrv/immplugin
 WORKDIR /var/lib/ImmutableST/tmpl/immsrv
 COPY ./server/immsrv ./
 COPY ./chaincode/hlRsyslog.tar.gz ./hlRsyslog
+COPY ./server/immpluginsrv/immpluginsrv ./immplugin/
 
 RUN mkdir -p /var/lib/ImmutableST/org
 
