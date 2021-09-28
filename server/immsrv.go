@@ -24,6 +24,7 @@ import (
 	"immutil"
 	"fabconf"
 	"immclient"
+	"cacli"
 	"jpkicli"
 
 	"context"
@@ -126,11 +127,6 @@ const (
 
 	storageGrpPort = 7050
 
-	cfgMapFedUser = "-feduser"
-	cfgMapFedGrp = "-fedgrp"
-	cmFedUserLabel = "federatedUser"
-
-	defaultCAPortStr = ":7054"
 	affnJPKIPrefix = "FedJPKI:"
 	affnLDAPPrefix = "FedLDAP:"
 )
@@ -1114,6 +1110,28 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								},
 								InitialDelaySeconds: int32(2),
 								PeriodSeconds: int32(4),
+							},
+						},
+						{
+							Name: "imm-pluginsrv",
+							Image: pullRegAddr + immutil.ImmSrvImg,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name: "vol1",
+									MountPath: "/var/lib/immplugin",
+									SubPath: immutil.ImmsrvHostname+"."+org+immutil.ImmsrvExpDir+"/immplugin",
+								},
+							},
+							Env: []corev1.EnvVar{
+								{ Name: "IMMS_ORG", Value: org, },
+							},
+							Command: []string{"/var/lib/immplugin/immpluginsrv"},
+							Ports: []corev1.ContainerPort{
+								{
+									Name: "plugin",
+									Protocol: corev1.ProtocolTCP,
+									ContainerPort: 50052,
+								},
 							},
 						},
 						{
@@ -3850,7 +3868,7 @@ func (s *server) RegisterUser(ctx context.Context, req *immop.RegisterUserReques
 	}
 
 	var adminCert []byte
-	caCli := newCAClient("https://"+caCommonName+defaultCAPortStr)
+	caCli := cacli.NewCAClient("https://"+caCommonName+cacli.DefaultPort)
 	switch req.AuthType {
 	case "LDAP":
 		adminCert, retErr = registerLDAPAdmin(caCli, tmpPriv, tmpCert, req)
@@ -3863,178 +3881,8 @@ func (s *server) RegisterUser(ctx context.Context, req *immop.RegisterUserReques
 		return
 	}
 	
-	retErr = storeCertID(adminCert, req.AuthType)
+	retErr = immutil.StoreCertID(adminCert, req.AuthType)
 	return
-}
-
-type certID struct {
-	SerialNumber string `json:"sn"`
-	AuthorityKeyId []byte `json:"aki"`
-	AuthType string `json:"authtype,omitempty"`
-}
-
-func storeCertID(certPem []byte, authType string) error {
-	cert, _, err := immutil.ReadCertificate(certPem)
-	if err != nil {
-		return err
-	}
-
-	cfgMapClient, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return err
-	}
-
-	fedName := strings.TrimPrefix(cert.Subject.CommonName, "@")
-	cfgMapSuffix := cfgMapFedUser
-	if fedName != cert.Subject.CommonName {
-		cfgMapSuffix = cfgMapFedGrp
-	}
-	cfgMapName := cert.Issuer.CommonName + cfgMapSuffix
-
-	if strings.Contains(fedName, "@") {
-		return fmt.Errorf("invalid username: " + cert.Subject.CommonName)
-	}
-		
-	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
-	if err != nil || fedMap == nil {
-		fedMap = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: cfgMapName,
-				Labels: map[string] string{
-					"config": cmFedUserLabel,
-				},
-			},
-		}
-
-		fedMap, err = cfgMapClient.Create(context.TODO(), fedMap, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create a ConfigMap for federated user: " + err.Error())
-		}
-	}
-
-	id := &certID{
-		SerialNumber: cert.SerialNumber.Text(62),
-		AuthorityKeyId: cert.AuthorityKeyId,
-	}
-	if authType != "LDAP" {
-		id.AuthType = authType
-	}
-
-	certIDRaw, err := json.Marshal(id)
-	if err != nil {
-		return fmt.Errorf("failed to marshal a certificate ID: %s\n", err)
-	}
-	
-	if fedMap.BinaryData == nil {
-		fedMap.BinaryData = make(map[string][]byte)
-	}
-	fedMap.BinaryData[fedName] = certIDRaw
-	_, err = cfgMapClient.Update(context.TODO(), fedMap, metav1.UpdateOptions{})
-	return err
-}
-
-func loadBaseCertForJPKI(caName string) (*x509.Certificate, error) {
-	cfgMapClient, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return nil, err
-	}
-
-	cfgMapName := caName + cfgMapFedGrp
-	cfgMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
-	if err != nil || cfgMap == nil {
-		return nil, fmt.Errorf("There is no ConfigMap for JPKI administrator on this machine")
-	}
-	
-	if cfgMap.BinaryData == nil  || len(cfgMap.BinaryData) == 0 {
-		return nil, fmt.Errorf("unexpected configuration for JPKI administrator")
-	}
-
-	var certIDRaw []byte
-	var adminName string
-	id := &certID{}
-	foundF := false
-	for adminName, certIDRaw = range cfgMap.BinaryData {
-		err = json.Unmarshal(certIDRaw, id)
-		if err != nil {
-			return nil, fmt.Errorf("corrupted configuration for JPKI administator")
-		}
-
-		if id.AuthType == "JPKI" {
-			foundF = true
-			break
-		}
-	}
-
-	if foundF == false {
-		return nil, fmt.Errorf("There is no administrator for JPKI in a ConfigMap")
-	}
-	
-	sn := &big.Int{}
-	sn.SetString(id.SerialNumber, 62)
-	baseCert := &x509.Certificate{
-		SerialNumber: sn,
-		Subject: pkix.Name{
-			CommonName: "@" + adminName,
-			OrganizationalUnit: []string{"client"},
-		},
-		AuthorityKeyId: id.AuthorityKeyId,
-	}
-
-	return baseCert, nil
-}
-
-func loadBaseCert(username, caName string) (*x509.Certificate, error) {
-	cfgMapClient, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return nil, err
-	}
-
-	tmpStrs := strings.SplitN(username, "@", 2)
-	fedName := tmpStrs[0]
-	adminName := fedName
-	cfgMapSuffix := cfgMapFedUser
-	if len(tmpStrs) == 2 {
-		fedName = tmpStrs[1]
-		adminName = "@"+fedName
-		cfgMapSuffix = cfgMapFedGrp
-		if username == adminName {
-			return nil, fmt.Errorf("administrator")
-		}
-	}
-
-	cfgMapName := caName + cfgMapSuffix
-	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
-	if err != nil || fedMap == nil {
-		return nil, fmt.Errorf("not found user")
-	}
-
-	if fedMap.BinaryData == nil {
-		return nil, fmt.Errorf("invalid configuration for federated user")
-	}
-
-	certIDRaw, ok := fedMap.BinaryData[fedName]
-	if !ok {
-		return nil, fmt.Errorf(username + " is not found in " + caName)
-	}
-
-	id := &certID{}
-	err = json.Unmarshal(certIDRaw, id)
-	if err != nil {
-		return nil, fmt.Errorf("corrupted configuration for federated user")
-	}
-
-	sn := &big.Int{}
-	sn.SetString(id.SerialNumber, 62)
-	baseCert := &x509.Certificate{
-		SerialNumber: sn,
-		Subject: pkix.Name{
-			CommonName: adminName,
-			OrganizationalUnit: []string{"client"},
-		},
-		AuthorityKeyId: id.AuthorityKeyId,
-	}
-
-	return baseCert, nil
 }
 
 func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (reply *immop.EnrollUserReply, retErr error) {
@@ -4061,55 +3909,37 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 
 	username := csr.Subject.CommonName
 	caName := s.parentCert.Subject.CommonName
-	caCli := newCAClient("https://"+caName+defaultCAPortStr)
+	caCli := cacli.NewCAClient("https://"+caName+cacli.DefaultPort)
 	
-	baseCert, err := loadBaseCert(username, caName)
+	adminID, err := immutil.GetAdminID(username, caName)
 	if err != nil {
 		// request to CA
-		reply.Cert, retErr = caCli.enrollCAUser(username, req.Secret, enrollReq)
+		reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
 		return
 	}
+	adminUser := &immclient.UserID{Name: adminID.Name, Priv: adminID.Priv, Cert: adminID.Cert, Client: caCli, }
+	
 
 	// Enrolling user is federated user
-	tmpID, retErr := s.authenticateFedUser(caCli, baseCert, username, req.Secret)
+	retErr = authenticateFedUser(adminUser, username, req.Secret)
 	if retErr != nil {
 		return // authentication failure
 	}
-	
 	// authentication success
-	if tmpID.Name == username {
-		reply.Cert, retErr = caCli.reenrollCAUser(tmpID, enrollReq)
+
+	if adminID.Name == username {
+		reply.Cert, retErr = caCli.ReenrollCAUser(adminUser, enrollReq)
 		return
 	}
 
 	// register and enroll user
-	reply.Cert, retErr = caCli.registerAndEnrollUser(tmpID, username, enrollReq)
+	reply.Cert, retErr = caCli.RegisterAndEnrollUser(adminUser, username, enrollReq)
 	return
 }
 
-func (s *server) authenticateFedUser(caCli *caClient, baseCert *x509.Certificate, username, secret string) (id *immclient.UserID, retErr error) {
-	caName := s.parentCert.Subject.CommonName
-	
-	caPriv, caCert, err := immutil.K8sGetKeyPair(caName)
-	if err != nil {
-		retErr = fmt.Errorf("CA error: %s", err)
-		return
-	}
-	
-	tmpPriv, tmpCert, retErr := immutil.CreateTemporaryCert(baseCert, caPriv, caCert)
-	if err != nil {
-		retErr = fmt.Errorf("authentication error")
-		return
-	}
-
-	adminName := username
-	tmpStrs := strings.SplitN(username, "@", 2)
-	if len(tmpStrs) == 2 {
-		adminName = "@" + tmpStrs[1]
-	}
-	
-	id = &immclient.UserID{Name: adminName, Priv: tmpPriv, Cert: tmpCert, Client: caCli,}
-	adminAttr, err := id.GetIdentity(caCli.urlBase, adminName)
+func authenticateFedUser(adminID *immclient.UserID, username, secret string) (retErr error) {
+	caCli := adminID.Client.(*cacli.CAClient)
+	adminAttr, err := adminID.GetIdentity(caCli.UrlBase, adminID.Name)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return
@@ -4158,8 +3988,8 @@ func (s *server) CommCA(ctx context.Context, req *immop.CommCARequest) (reply *i
 		return
 	}
 
-	urlBase := "https://" + caName + defaultCAPortStr
-	cli := newCAClient(urlBase)
+	
+	cli := cacli.NewCAClient("https://" + caName + cacli.DefaultPort)
 	
 	var rsp []byte
 	rsp, retErr = cli.RequestCA(req)

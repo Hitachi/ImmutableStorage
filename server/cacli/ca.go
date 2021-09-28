@@ -14,27 +14,31 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cacli
 
 import (
-	"encoding/base64"	
-	"crypto/tls"
+	"immclient"
+	"immop"
+
 	"bytes"
 	"fmt"
 	"time"
 	"io"
+	"encoding/base64"
+	"crypto/tls"
 	"net/http"
-	"immclient"
-	"immop"
 )
 
+const (
+	DefaultPort = ":7054"
+)
 
-type caClient struct {
-	urlBase string
+type CAClient struct {
+	UrlBase string
 	client *http.Client
 }
 
-func newCAClient(urlBase string) (*caClient){
+func NewCAClient(urlBase string) (*CAClient){
 	client := &http.Client{}
 	client.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -42,13 +46,13 @@ func newCAClient(urlBase string) (*caClient){
 		},
 	}
 	
-	return &caClient{
-		urlBase: urlBase,
+	return &CAClient{
+		UrlBase: urlBase,
 		client: client,
 	}
 }
 
-func (cli *caClient) sendReqCA(req *http.Request) (rsp []byte, retErr error){
+func (cli *CAClient) sendReqCA(req *http.Request) (rsp []byte, retErr error){
 	resp, err := cli.client.Do(req)
 	if err != nil {
 		retErr = fmt.Errorf("failed to request: " + err.Error())
@@ -74,11 +78,11 @@ func (cli *caClient) sendReqCA(req *http.Request) (rsp []byte, retErr error){
 	return // success
 }
 
-func (cli *caClient) registerCAUser(adminID *immclient.UserID, req *immclient.RegistrationRequest) (secret string, retErr error) {
+func (cli *CAClient) RegisterCAUser(adminID *immclient.UserID, req *immclient.RegistrationRequest) (secret string, retErr error) {
 	regRsp := &immclient.RegistrationResponse{}
 	reqCA := &immclient.ReqCAParam{
 		Func: "Register",
-		URLBase: cli.urlBase,
+		URLBase: cli.UrlBase,
 		URI: "/register",
 		Method: "POST",
 		Param: req,
@@ -95,11 +99,11 @@ func (cli *caClient) registerCAUser(adminID *immclient.UserID, req *immclient.Re
 	return // success
 }
 
-func (cli *caClient) enrollCAUser(username, secret string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
+func (cli *CAClient) EnrollCAUser(username, secret string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	csrRsp := &immclient.EnrollmentResponseNet{}
 	reqCA := &immclient.ReqCAParam{
 		Func: "Enroll",
-		URLBase: cli.urlBase,
+		URLBase: cli.UrlBase,
 		URI: "/enroll",
 		Method: "POST",
 		Param: req,
@@ -121,11 +125,11 @@ func (cli *caClient) enrollCAUser(username, secret string, req *immclient.Enroll
 	return
 }
 
-func (cli *caClient) reenrollCAUser(id *immclient.UserID, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
+func (cli *CAClient) ReenrollCAUser(id *immclient.UserID, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	csrRsp := &immclient.EnrollmentResponseNet{}
 	reqCA := &immclient.ReqCAParam{
 		Func: "Reenroll",
-		URLBase: cli.urlBase,
+		URLBase: cli.UrlBase,
 		URI: "/reenroll",
 		Method: "POST",
 		Param: req,
@@ -146,14 +150,14 @@ func (cli *caClient) reenrollCAUser(id *immclient.UserID, req *immclient.Enrollm
 	return
 }
 
-func (cli *caClient) registerAndEnrollUser(adminID *immclient.UserID, username string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
+func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, username string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	caSecret := immclient.RandStr(8)
 
-	_, err := adminID.GetIdentity(cli.urlBase, username)
+	_, err := adminID.GetIdentity(cli.UrlBase, username)
 	if err == nil {
 		// There is a record for this user in CA DB
-		adminID.ChangeSecret(cli.urlBase, username, caSecret)
-		return cli.enrollCAUser(username, caSecret, req)
+		adminID.ChangeSecret(cli.UrlBase, username, caSecret)
+		return cli.EnrollCAUser(username, caSecret, req)
 	}
 	
 	// register an LDAP user
@@ -164,17 +168,17 @@ func (cli *caClient) registerAndEnrollUser(adminID *immclient.UserID, username s
 		Secret: caSecret,	
 	}
 	
-	_, err = cli.registerCAUser(adminID, regReq)
+	_, err = cli.RegisterCAUser(adminID, regReq)
 	if err != nil {
 		return nil, err
 	}
 	
 	// enroll a user
-	return cli.enrollCAUser(username, caSecret, req)
+	return cli.EnrollCAUser(username, caSecret, req)
 }
 
-func (cli *caClient) addAffiliation(caRegID *immclient.UserID, affiliation string) (error) {
-	affL, err := caRegID.GetAllAffiliations(cli.urlBase)
+func (cli *CAClient) addAffiliation(caRegID *immclient.UserID, affiliation string) (error) {
+	affL, err := caRegID.GetAllAffiliations(cli.UrlBase)
 	if err != nil {
 		return err
 	}
@@ -185,10 +189,10 @@ func (cli *caClient) addAffiliation(caRegID *immclient.UserID, affiliation strin
 		}
 	}
 
-	return caRegID.AddAffiliation(cli.urlBase, affiliation)
+	return caRegID.AddAffiliation(cli.UrlBase, affiliation)
 }
 
-func (cli *caClient) registerAndEnrollAdmin(caRegID *immclient.UserID, regReq *immclient.RegistrationRequest, roleDurationYear time.Duration) ([]byte, error) {
+func (cli *CAClient) RegisterAndEnrollAdmin(caRegID *immclient.UserID, regReq *immclient.RegistrationRequest, roleDurationYear time.Duration) ([]byte, error) {
 	// add an affilication
 	err := cli.addAffiliation(caRegID, regReq.Affiliation)
 	if err != nil {
@@ -196,7 +200,7 @@ func (cli *caClient) registerAndEnrollAdmin(caRegID *immclient.UserID, regReq *i
 	}
 
 	// register a user
-	secret, err := cli.registerCAUser(caRegID, regReq)
+	secret, err := cli.RegisterCAUser(caRegID, regReq)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +220,7 @@ func (cli *caClient) registerAndEnrollAdmin(caRegID *immclient.UserID, regReq *i
 		},
 	}
 
-	return cli.enrollCAUser(regReq.Name, secret, preenrollReq)
+	return cli.EnrollCAUser(regReq.Name, secret, preenrollReq)
 }
 
 var caOP = map[string] struct{Method string}{
@@ -234,13 +238,13 @@ var caOP = map[string] struct{Method string}{
 	"ModifyIdentity": {Method: "PUT",},
 }
 
-func (cli *caClient) RequestCA(req *immop.CommCARequest) (rsp []byte, retErr error) {
+func (cli *CAClient) RequestCA(req *immop.CommCARequest) (rsp []byte, retErr error) {
 	op, ok := caOP[req.Func]
 	if !ok {
 		return nil, fmt.Errorf("unknown function")
 	}
 
-	reqCA, err := http.NewRequest(op.Method, cli.urlBase+req.URI, bytes.NewReader(req.Param) )
+	reqCA, err := http.NewRequest(op.Method, cli.UrlBase+req.URI, bytes.NewReader(req.Param) )
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a request")
 	}

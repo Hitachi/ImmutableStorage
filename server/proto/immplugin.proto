@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package immplugin;
+option go_package = "./immplugin";
+
+message DoPluginRequest {
+        bytes Creator = 1;
+        repeated bytes Args = 2;
+}
+
+message DoPluginReply {
+        string Func = 1;
+        string Key = 2;
+        bytes Value = 3;
+}
+        
+
+service ImmPlugin {
+        rpc DoPlugin(DoPluginRequest) returns (DoPluginReply) {}
+}

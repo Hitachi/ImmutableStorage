@@ -38,6 +38,7 @@ import (
 	"immop"
 	"immclient"
 	"immutil"
+	"cacli"
 	"jpkicli"
 
 	_ "embed"
@@ -53,7 +54,7 @@ var signca01 []byte
 var signca02 []byte
 
 
-func registerJPKIAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
+func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
 	authParam := &immop.AuthParamJPKI{}
 	err := proto.Unmarshal(req.AuthParam, authParam)
 	if err != nil {
@@ -79,31 +80,22 @@ func registerJPKIAdmin(caCli *caClient, tmpPriv, tmpCert []byte, req *immop.Regi
 	}
 
 	caRegID := &immclient.UserID{Name: "tmpUser", Priv: tmpPriv, Cert: tmpCert, Client: caCli}
-	return caCli.registerAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
+	return caCli.RegisterAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
 }
 
 func getAdminJPKI(caName string) (id *immclient.UserID, retErr error) {
-	caPriv, caCert, err := immutil.K8sGetKeyPair(caName)
+	tmpID, err := immutil.GetAdminJPKI(caName)
 	if err != nil {
-		retErr = fmt.Errorf("There is no CA on this server: " + err.Error())
-		return
+		retErr = err
+		return // error
 	}
 	
-	baseCert, err := loadBaseCertForJPKI(caName)
-	if err != nil {
-		retErr = fmt.Errorf("There is no administrator for JPKI: " + err.Error())
-		return
+	id = &immclient.UserID{
+		Name: tmpID.Name,
+		Priv: tmpID.Priv,
+		Cert: tmpID.Cert,
+		Client: cacli.NewCAClient("https://"+caName+cacli.DefaultPort),
 	}
-	
-	tmpPriv, tmpCert, err := immutil.CreateTemporaryCert(baseCert, caPriv, caCert)
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a temporary certificate: " + err.Error())
-		return
-	}
-
-	adminName := baseCert.Subject.CommonName
-	caCli := newCAClient("https://"+caName+defaultCAPortStr)
-	id = &immclient.UserID{Name: adminName, Priv: tmpPriv, Cert: tmpCert, Client: caCli, }
 	return // success
 }
 
@@ -235,7 +227,7 @@ func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 		regReq.Attributes = append(regReq.Attributes, privacyAttrs...)
 	}
 
-	_, retErr = id.Client.(*caClient).registerCAUser(id, regReq)
+	_, retErr = id.Client.(*cacli.CAClient).RegisterCAUser(id, regReq)
 	if retErr != nil {
 		return
 	}
@@ -341,7 +333,7 @@ func enrollJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 		},
 	}
 	
-	cert, err := adminID.Client.(*caClient).enrollCAUser(username, secret, enrollReq)
+	cert, err := adminID.Client.(*cacli.CAClient).EnrollCAUser(username, secret, enrollReq)
 	if err != nil {
 		retErr = err
 		return

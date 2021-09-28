@@ -82,7 +82,8 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	}
 	startCaCmd := "fabric-ca-server start"
 	startCaCmd += " --ca.certfile "+caCert + " --ca.keyfile "+caPrv
-	startCaCmd += " -b "+caAdminName+":"+caAdminPass + " -d --cfg.identities.allowremove"
+	//startCaCmd += " -b "+caAdminName+":"+caAdminPass + " -d --cfg.identities.allowremove"
+	startCaCmd += " -b "+caAdminName+":"+caAdminPass + " --cfg.identities.allowremove"	
 	startCaCmd += " --cfg.affiliations.allowremove"
 	configFile := caDataDir+"/fabric-ca-server-config.yaml"
 
@@ -218,11 +219,6 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 				},
 			},
 		},
-	}
-	if len(config.ExternalIPs) > 0 {
-		service.Spec.ExternalIPs = config.ExternalIPs
-	}else{
-		service.Spec.Type = corev1.ServiceTypeLoadBalancer
 	}
 
 	serviceClient, err := immutil.K8sGetServiceClient()

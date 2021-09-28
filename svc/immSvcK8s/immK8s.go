@@ -24,7 +24,6 @@ import (
 	
 	"crypto/x509/pkix"
 	"os"
-	"io/ioutil"
 	"context"
 	"bytes"
 	"fmt"
@@ -33,7 +32,6 @@ import (
 )
 
 const (
-	exportDirSuffix = "/export"
 	caConfHostDir = "conf"
 )
 
@@ -98,7 +96,7 @@ func createImmsrvConf(subj *pkix.Name) error {
 		return fmt.Errorf("failed to create keys: %s", err)
 	}
 
-	exportDir := immsrvBaseDir + exportDirSuffix
+	exportDir := immsrvBaseDir + immutil.ImmsrvExpDir
 	_, err = os.Stat(exportDir)
 	if err == nil {
 		return nil
@@ -138,7 +136,7 @@ func createEnvoyConf(subj *pkix.Name) error {
 		return nil // This configuration already exists
 	}
 	
-	envoyYaml, err := ioutil.ReadFile(immutil.TmplDir + "/envoy/envoy.yaml")
+	envoyYaml, err := os.ReadFile(immutil.TmplDir + "/envoy/envoy.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to read a template: %s", err)
 	}
@@ -247,7 +245,7 @@ func createPod(immsrvSubj, envoySubj *pkix.Name, externalIPs []string) error {
 							Name: immutil.ImmsrvHostname,
 							Image: pullRegAddr + immutil.ImmSrvImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "immsrv-vol1", MountPath: "/var/lib/immsrv", SubPath: immsrvHostname+exportDirSuffix, },
+								{ Name: "immsrv-vol1", MountPath: "/var/lib/immsrv", SubPath: immsrvHostname+immutil.ImmsrvExpDir, },
 								{ Name: "immsrv-keys-vol", MountPath: "/var/lib/immsrv/keys", },
 							},
 							Command: []string{"/var/lib/immsrv/immsrv"},
@@ -362,7 +360,7 @@ func makeHttpdConf(envoySubj *pkix.Name) error {
 	httpdConfFile := immutil.VolBaseDir+ "/"+immutil.HttpdHostname+"."+envoySubj.Organization[0] + "/conf/httpd.conf"
 	envoyHost := immutil.EnvoyHostname+"."+envoySubj.Organization[0]
 	
-	src, err := ioutil.ReadFile(httpdConfFile)
+	src, err := os.ReadFile(httpdConfFile)
 	if err != nil {
 		return fmt.Errorf("could not read " + httpdConfFile)
 	}
@@ -374,7 +372,7 @@ func makeHttpdConf(envoySubj *pkix.Name) error {
 		return nil
 	}
 	if modifiedF {
-		err = ioutil.WriteFile(httpdConfFile, removedItem, 0644)
+		err = os.WriteFile(httpdConfFile, removedItem, 0644)
 		if err != nil {
 			return fmt.Errorf("could not write " + httpdConfFile)
 		}
