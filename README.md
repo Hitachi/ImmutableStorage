@@ -94,7 +94,7 @@ Initial administrator secret: WNB57zcz
 
 You can get an IP to access Immutable Storage service.
 ```
-kubectl svc
+kubectl get svc
 ```
 
 This command will print an IP for "www" service in "EXTERNAL-IP". The IP is 10.64.140.44 in this case.
