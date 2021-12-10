@@ -108,13 +108,16 @@ func (s *server) DoPlugin(ctx context.Context, req *immplugin.DoPluginRequest) (
 		return // success
 		
 	case "getLog":
-		if len(req.Args) != 2 {
+		if len(req.Args) < 2 {
 			retErr = errors.New("Unexpected argument")
 			return
 		}
 
 		reply.Func = "GetHistoryForKey"
 		reply.Key = string(req.Args[1])
+		if len(req.Args) >= 3 {
+			reply.Value = req.Args[2] // option
+		}
 		return // success
 	}
 
@@ -137,7 +140,7 @@ func (s *server) validateUser(cert *x509.Certificate, funcName string) error {
 	username := cert.Subject.CommonName
 	caName := cert.Issuer.CommonName
 	
-	tmpID, err := immutil.GetAdminID(username, caName)
+	tmpID, _, err := immutil.GetAdminID(username, caName)
 	if err != nil {
 		// The requester does not have administrators.
 		return nil // allowed

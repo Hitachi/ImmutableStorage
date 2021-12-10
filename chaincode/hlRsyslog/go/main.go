@@ -88,9 +88,26 @@ func (s *PluginFunc) Invoke(APIstub shim.ChaincodeStubInterface) peer.Response {
 
 		var retBuf bytes.Buffer
 		
+		if string(rsp.Value) == "txId" {
+			// json marshal only TxID string slice
+			retBuf.WriteString("[")
+			for  retHistory.HasNext() {
+				rsp, err := retHistory.Next()
+				if err != nil {
+					return shim.Error(err.Error())
+				}
+				retBuf.WriteString("\"" + rsp.TxId + "\",")
+			}
+			truncateN := retBuf.Len() - 1
+			if truncateN != 0 {
+				retBuf.Truncate(truncateN)
+			}
+			retBuf.WriteString("]")
+			return shim.Success(retBuf.Bytes())
+		}
+		
 		retBuf.WriteString("[")
-		hasNextB := retHistory.HasNext()
-		for hasNextB {
+		for retHistory.HasNext() {
 			rsp, err := retHistory.Next()
 			if err != nil {
 				return shim.Error(err.Error())
@@ -101,11 +118,11 @@ func (s *PluginFunc) Invoke(APIstub shim.ChaincodeStubInterface) peer.Response {
 				return shim.Error(err.Error())
 			}
 			retBuf.Write(b)
-			
-			hasNextB = retHistory.HasNext()
-			if hasNextB {
-				retBuf.WriteString(",")
-			}
+			retBuf.WriteString(",")
+		}
+		truncateN := retBuf.Len() - 1
+		if truncateN != 0 {
+			retBuf.Truncate(truncateN)
 		}
 		retBuf.WriteString("]")
 		

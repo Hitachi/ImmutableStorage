@@ -21,9 +21,8 @@ import (
 	"fmt"
 	"strings"
 	"os"
-	"syscall"
 	"time"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/peer"
@@ -61,24 +60,24 @@ func main(){
 		var err error
         ledger, err = immledger.OpenKey(username, keyDir, password);
         if err == nil {
-            break; // success
+            break // success
 		}
 
-        if (i == 4) {
+        if i == 4 {
             fmt.Printf("error: %s\n", err)
             os.Exit(5)
         }
         
         if strings.HasPrefix(err.Error(), immledger.ERR_PASS_INCORRECT) {
 			fmt.Printf("Please enter the password: ")
-            passwordByte, err := terminal.ReadPassword(int(syscall.Stdin))
+            passwordByte, err := term.ReadPassword(int(os.Stdin.Fd()))
 			if err != nil {
 				fmt.Printf("failed to read a password: %s\n", err)
 				os.Exit(6)
 			}
 			password = string(passwordByte)
 				
-            continue;
+            continue
         }
         
         fmt.Printf("error: %s\n", err)

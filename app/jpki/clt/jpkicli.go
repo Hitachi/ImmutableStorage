@@ -20,10 +20,13 @@ import (
 	"encoding/asn1"
 	"encoding/json"
 	//	"encoding/hex"
+	"encoding/base64"
 	"encoding"
 	"crypto/x509"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/rsa"
+	"time"
 	"math"
 	"errors"
 	"fmt"
@@ -262,6 +265,8 @@ type RegisterJPKIUserRequest struct {
 	
 	SignDigest []byte `json:"SignDigest"`
 	SignSignature []byte `json:"SignSignature"`
+
+	GroupName string `json:"GroupName"`
 }
 
 type RegisterJPKIUserReply struct {
@@ -315,7 +320,8 @@ type GetJPKIUsernameRequest struct {
 	Digest []byte `json:"Digest"`
 	Signature []byte `json:"Signature"`
 	AuthPub []byte `json:"AuthPub,omitempty"`
-	SignPub []byte `json:"SignPub,omitempty"`	
+	SignPub []byte `json:"SignPub,omitempty"`
+	GroupName string `json:"GroupName"`
 }
 
 type GetJPKIUsernameReply struct {
@@ -351,3 +357,99 @@ func DebugData(url string, dData *DebugDataRequest) (retErr error) {
 	retErr = jpkiFunc(url, FDebugData, dData, rsp)
 	return
 }
+
+type jsonCert struct {
+	Cert string `json:"cert"`
+	Err string `json:"err"`
+}
+
+type jsonSignature struct {
+	Signature string `json:"signature"`
+	Err string `json:"err"`
+}
+
+type GenerateSignatureRsp struct {
+	Digest []byte
+	Signature []byte
+	PubAsn1 []byte
+	CertAsn1 []byte
+	Cert *x509.Certificate
+}
+
+type SignInf interface {
+	SignData(pin, digest string) (signatureJson string)
+	GetCert(pin string) (certJson string)
+}
+
+func SignData(si SignInf, pin, digest string) (signature []byte, retErr error) {
+	signatureJson := si.SignData(pin, digest)
+	jSign := &jsonSignature{}
+	err := json.Unmarshal([]byte(signatureJson), jSign)
+	if err != nil {
+		retErr = errors.New("failed to create a signature: " + err.Error())
+		return
+	}
+	if jSign.Err != "" {
+		retErr = errors.New(jSign.Err)
+		return
+	}
+	signature, err = base64.StdEncoding.DecodeString(jSign.Signature)
+	if err != nil {
+		retErr = errors.New("unexpected signature: " + err.Error())
+		return
+	}
+	return // success
+}
+
+func GenerateSignature(si SignInf, pin string) (rsp *GenerateSignatureRsp, retErr error) {
+	rsp = &GenerateSignatureRsp{}
+	
+	var err error
+	rsp.Digest, err = time.Now().MarshalBinary()
+	if err != nil {
+		retErr = errors.New("failed to get current time: " + err.Error())
+		return
+	}
+
+	hashVal := sha256.Sum256(rsp.Digest)
+	digest := base64.StdEncoding.EncodeToString(hashVal[:])
+	rsp.Signature, retErr = SignData(si, pin, digest)
+	if retErr != nil {
+		return
+	}
+
+	signCertJson := si.GetCert(pin)
+	jCert := &jsonCert{}
+	err = json.Unmarshal([]byte(signCertJson), jCert)
+	if err != nil {
+		retErr = errors.New("unexpected data: " + err.Error())
+		return
+	}
+	if jCert.Err != "" {
+		retErr = errors.New(jCert.Err)
+		return
+	}
+
+	rsp.CertAsn1, err = base64.StdEncoding.DecodeString(jCert.Cert)
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	cert, err := x509.ParseCertificate(rsp.CertAsn1)
+	if err != nil {
+		retErr = errors.New("unexpected certificate: " + err.Error())
+		return
+	}
+	rsp.Cert = cert
+
+	pubKey, ok := cert.PublicKey.(*rsa.PublicKey)
+	if !ok {
+		retErr = errors.New("unexpected public key")
+		return
+	}
+	rsp.PubAsn1 = x509.MarshalPKCS1PublicKey(pubKey)
+
+	return // success
+}
+

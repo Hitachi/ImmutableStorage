@@ -310,9 +310,7 @@ func StoreCertID(certPem []byte, authType string) error {
 	}
 	cfgMapName := cert.Issuer.CommonName + cfgMapSuffix
 
-	if strings.Contains(fedName, "@") {
-		return fmt.Errorf("invalid username: " + cert.Subject.CommonName)
-	}
+	fedName =  strings.ReplaceAll(fedName, "@", "..")
 		
 	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
 	if err != nil || fedMap == nil {
@@ -352,10 +350,11 @@ func StoreCertID(certPem []byte, authType string) error {
 	return err
 }
 
-func loadBaseCert(username, caName string) (*x509.Certificate, error) {
+func loadBaseCert(username, caName string) (baseCert *x509.Certificate, authType string, retErr error) {
 	cfgMapClient, err := K8sGetConfigMapsClient()
 	if err != nil {
-		return nil, err
+		retErr = err
+		return
 	}
 
 	tmpStrs := strings.SplitN(username, "@", 2)
@@ -366,32 +365,38 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 		fedName = tmpStrs[1]
 		adminName = "@"+fedName
 		cfgMapSuffix = cfgMapFedGrp
+
+		fedName = strings.ReplaceAll(fedName, "@", "..")
 	}
 
 	cfgMapName := caName + cfgMapSuffix
 	fedMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
 	if err != nil || fedMap == nil {
-		return nil, fmt.Errorf("not found user")
+		retErr = fmt.Errorf("not found user")
+		return
 	}
 
 	if fedMap.BinaryData == nil {
-		return nil, fmt.Errorf("invalid configuration for federated user")
+		retErr = fmt.Errorf("invalid configuration for federated user")
+		return
 	}
 
 	certIDRaw, ok := fedMap.BinaryData[fedName]
 	if !ok {
-		return nil, fmt.Errorf(username + " is not found in " + caName)
+		retErr = fmt.Errorf(username + " is not found in " + caName)
+		return
 	}
 
 	id := &certID{}
 	err = json.Unmarshal(certIDRaw, id)
 	if err != nil {
-		return nil, fmt.Errorf("corrupted configuration for federated user")
+		retErr = fmt.Errorf("corrupted configuration for federated user")
+		return
 	}
 
 	sn := &big.Int{}
 	sn.SetString(id.SerialNumber, 62)
-	baseCert := &x509.Certificate{
+	baseCert = &x509.Certificate{
 		SerialNumber: sn,
 		Subject: pkix.Name{
 			CommonName: adminName,
@@ -399,58 +404,12 @@ func loadBaseCert(username, caName string) (*x509.Certificate, error) {
 		},
 		AuthorityKeyId: id.AuthorityKeyId,
 	}
-
-	return baseCert, nil
-}
-
-func loadBaseCertForJPKI(caName string) (*x509.Certificate, error) {
-	cfgMapClient, err := K8sGetConfigMapsClient()
-	if err != nil {
-		return nil, err
-	}
-
-	cfgMapName := caName + cfgMapFedGrp
-	cfgMap, err := cfgMapClient.Get(context.TODO(), cfgMapName, metav1.GetOptions{})
-	if err != nil || cfgMap == nil {
-		return nil, fmt.Errorf("There is no ConfigMap for JPKI administrator on this machine")
+	authType = id.AuthType
+	if authType == "" {
+		authType = "LDAP"
 	}
 	
-	if cfgMap.BinaryData == nil  || len(cfgMap.BinaryData) == 0 {
-		return nil, fmt.Errorf("unexpected configuration for JPKI administrator")
-	}
-
-	var certIDRaw []byte
-	var adminName string
-	id := &certID{}
-	foundF := false
-	for adminName, certIDRaw = range cfgMap.BinaryData {
-		err = json.Unmarshal(certIDRaw, id)
-		if err != nil {
-			return nil, fmt.Errorf("corrupted configuration for JPKI administator")
-		}
-
-		if id.AuthType == "JPKI" {
-			foundF = true
-			break
-		}
-	}
-
-	if foundF == false {
-		return nil, fmt.Errorf("There is no administrator for JPKI in a ConfigMap")
-	}
-	
-	sn := &big.Int{}
-	sn.SetString(id.SerialNumber, 62)
-	baseCert := &x509.Certificate{
-		SerialNumber: sn,
-		Subject: pkix.Name{
-			CommonName: "@" + adminName,
-			OrganizationalUnit: []string{"client"},
-		},
-		AuthorityKeyId: id.AuthorityKeyId,
-	}
-
-	return baseCert, nil
+	return // success
 }
 
 type AdminID struct{
@@ -459,8 +418,8 @@ type AdminID struct{
 	Cert []byte
 }
 
-func GetAdminID(username, caName string) (id *AdminID, retErr error) {
-	baseCert, err := loadBaseCert(username, caName)
+func GetAdminID(username, caName string) (id *AdminID, authType string, retErr error) {
+	baseCert, authType, err := loadBaseCert(username, caName)
 	if err != nil {
 		retErr = fmt.Errorf("not found administrator: " + err.Error())
 		return
@@ -479,29 +438,5 @@ func GetAdminID(username, caName string) (id *AdminID, retErr error) {
 	}
 
 	id = &AdminID{Name: baseCert.Subject.CommonName, Priv: adminPriv, Cert: adminCert, }
-	return // success
-}
-
-func GetAdminJPKI(caName string) (id *AdminID, retErr error) {
-	caPriv, caCert, err := K8sGetKeyPair(caName)
-	if err != nil {
-		retErr = fmt.Errorf("There is no CA on this server: " + err.Error())
-		return
-	}
-	
-	baseCert, err := loadBaseCertForJPKI(caName)
-	if err != nil {
-		retErr = fmt.Errorf("There is no administrator for JPKI: " + err.Error())
-		return
-	}
-	
-	tmpPriv, tmpCert, err := CreateTemporaryCert(baseCert, caPriv, caCert)
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a temporary certificate: " + err.Error())
-		return
-	}
-
-	adminName := baseCert.Subject.CommonName
-	id = &AdminID{Name: adminName, Priv: tmpPriv, Cert: tmpCert, }
 	return // success
 }
