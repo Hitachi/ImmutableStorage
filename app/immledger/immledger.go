@@ -20,7 +20,7 @@ import (
 	"immclient"
 	"strings"
 	"gopkg.in/yaml.v2"
-	"io/ioutil"
+	"os"
 	"fmt"
 	"encoding/pem"
 	"crypto/x509"
@@ -48,7 +48,7 @@ func OpenKeyFromCfg(cfg ImmCfgInf) (userID *immclient.UserID, retErr error) {
 		org = userAndOrgStr[1]
 	}
 	
-	priv, err := ioutil.ReadFile(path+"/"+username+"_sk")
+	priv, err := os.ReadFile(path+"/"+username+"_sk")
 	if err != nil {
 		retErr = fmt.Errorf("OpenKey: failed to read a private key: " + err.Error())
 		return
@@ -65,7 +65,7 @@ func OpenKeyFromCfg(cfg ImmCfgInf) (userID *immclient.UserID, retErr error) {
 		priv = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1})
 	}		
 
-	cert, err := ioutil.ReadFile(path+"/"+username+"-cert.pem")
+	cert, err := os.ReadFile(path+"/"+username+"-cert.pem")
 	if err != nil {
 		retErr = fmt.Errorf("OpenKey: failed to read a certificate: " + err.Error())
 		return
@@ -102,8 +102,8 @@ func readCfgFile(cfgFile string) (cfg *ImmCfg) {
 	if cfgFile == "" {
 		cfgFile = defaultConfigFile
 	}
-	
-	cfgData, err := ioutil.ReadFile(cfgFile)
+
+	cfgData, err := os.ReadFile(cfgFile)
 	if err != nil {
 		return
 	}
@@ -199,15 +199,12 @@ func (st *ImmLedger) Write(storageGroup, logName, msgLog string) error {
 
 func (st *ImmLedger) GetTxID(storageGroup, logName string) (txIDs []string, retErr error) {
 	stGrp, url := st.getEndpoint(storageGroup)
-	history, retErr := st.id.ReadLedger(stGrp, logName, url)
+	history, retErr := st.id.ListTxId(stGrp, logName, url)
 	if retErr != nil {
 		return
 	}
 
-	txIDs = make([]string, len(*history))
-	for i, item := range *history {
-		txIDs[i] = item.TxId
-	}
+	txIDs = *history
 	return // success
 }
 
