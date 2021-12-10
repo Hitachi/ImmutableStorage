@@ -20,11 +20,6 @@ import (
 	"syscall/js"
 	"encoding/json"
 	"encoding/base64"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/sha256"
-	"errors"
-	"time"
 
 	"immclient"
 	"jpkicli"
@@ -41,16 +36,6 @@ func main() {
 	registerCallback()
 	makeContent()
 	<- ch
-}
-
-type jsonCert struct {
-	Cert string `json:"cert"`
-	Err string `json:"err"`
-}
-
-type jsonSignature struct {
-	Signature string `json:"signature"`
-	Err string `json:"err"`
 }
 
 func registerCallback() {
@@ -212,7 +197,7 @@ func exportAuthCertOk(in []js.Value) {
 		result.Set("innerHTML", msg)
 	}
 
-	rsp, err := genSignatureUsingAuthCert(pin)
+	rsp, err := jpkicli.GenerateSignature(&authCertImp{}, pin)
 	if err != nil {
 		visibleErrMsg(err.Error())
 		return
@@ -294,7 +279,7 @@ func exportSignCertOk(in []js.Value) {
 		return
 	}
 
-	rsp, err := genSignSignature(pin)
+	rsp, err := jpkicli.GenerateSignature(&signCertImp{}, pin)
 	if err != nil {
 		visibleErrMsg(err.Error())
 		return
@@ -372,7 +357,7 @@ func enterAuthPINOk(in []js.Value) {
 	
 	result := doc.Call("getElementById", "enterAuthPINResult")
 
-	rsp, err := genSignatureUsingAuthCert(pin)
+	rsp, err := jpkicli.GenerateSignature(&authCertImp{}, pin)
 	if err != nil {
 		result.Set("innerHTML", err.Error())
 		return
@@ -462,124 +447,25 @@ var cacheUser struct{
 	pin string
 }
 
-type GenSignSignatureRsp struct {
-	Digest []byte
-	Signature []byte
-	PubAsn1 []byte
-	CertAsn1 []byte
-	Cert *x509.Certificate
-}
-
-func signDataWithSignFunc(signFuncName, pin, digest string) (signature []byte, retErr error) {
-	gl := js.Global()
-	webAppNfc := gl.Get(webAppNfcObj)
-
-	signatureObj := webAppNfc.Call(signFuncName, pin, digest)
-	jSign := &jsonSignature{}
-	err := json.Unmarshal([]byte(signatureObj.String()), jSign)
-	if err != nil {
-		retErr = errors.New("failed to create a signature: " + err.Error())
-		return
-	}
-	if jSign.Err != "" {
-		retErr = errors.New(jSign.Err)
-		return
-	}
-	signature, err = base64.StdEncoding.DecodeString(jSign.Signature)
-	if err != nil {
-		retErr = errors.New("unexpected signature: " + err.Error())
-		return
-	}
-	return // success
-}
-
-type signInf interface {
-	SignData(pin, digest string) (signature []byte, retErr error)
-	GetCert(pin string) (cert js.Value)
-}
-
-func genSignSignatureInf(si signInf, pin string) (rsp *GenSignSignatureRsp, retErr error) {
-	rsp = &GenSignSignatureRsp{}
-	
-	var err error
-	rsp.Digest, err = time.Now().MarshalBinary()
-	if err != nil {
-		retErr = errors.New("failed to get current time: " + err.Error())
-		return
-	}
-
-	hashVal := sha256.Sum256(rsp.Digest)
-	digest := base64.StdEncoding.EncodeToString(hashVal[:])
-	rsp.Signature, retErr = si.SignData(pin, digest)
-	if retErr != nil {
-		return
-	}
-
-	signCertRaw := si.GetCert(pin)
-	jCert := &jsonCert{}
-	err = json.Unmarshal([]byte(signCertRaw.String()), jCert)
-	if err != nil {
-		retErr = errors.New("unexpected data: " + err.Error())
-		return
-	}
-	if jCert.Err != "" {
-		retErr = errors.New(jCert.Err)
-		return
-	}
-
-	rsp.CertAsn1, err = base64.StdEncoding.DecodeString(jCert.Cert)
-	if err != nil {
-		retErr = err
-		return
-	}
-
-	cert, err := x509.ParseCertificate(rsp.CertAsn1)
-	if err != nil {
-		retErr = errors.New("unexpected certificate: " + err.Error())
-		return
-	}
-	rsp.Cert = cert
-
-	pubKey, ok := cert.PublicKey.(*rsa.PublicKey)
-	if !ok {
-		retErr = errors.New("unexpected public key")
-		return
-	}
-	rsp.PubAsn1 = x509.MarshalPKCS1PublicKey(pubKey)
-
-	return // success
-}
-
 type signCertImp struct{}
-func (si *signCertImp) SignData(pin, digest string) (signature []byte, retErr error) {
-	return signDataWithSignFunc("signData", pin, digest)
+func (si *signCertImp) SignData(pin, digest string) (signatureJson string) {
+	webAppNfc := js.Global().Get(webAppNfcObj)
+	return webAppNfc.Call("signData", pin, digest).String()
 }
-
-func (si *signCertImp) GetCert(pin string) (cert js.Value) {
-	gl := js.Global()
-	webAppNfc := gl.Get(webAppNfcObj)
-	return webAppNfc.Call("readSignCert", pin)
-}
-
-func genSignSignature(pin string) (rsp *GenSignSignatureRsp, retErr error) {
-	return genSignSignatureInf(&signCertImp{}, pin)
+func (si *signCertImp) GetCert(pin string) (certJson string) {
+	webAppNfc := js.Global().Get(webAppNfcObj)
+	return webAppNfc.Call("readSignCert", pin).String()
 }
 
 type authCertImp struct{}
-func (si *authCertImp) SignData(pin, digest string) (signature []byte, retErr error) {
-	return signDataWithSignFunc("signDataUsingAuthKey", pin, digest)
+func (si *authCertImp) SignData(pin, digest string) (signatureJson string) {
+	webAppNfc := js.Global().Get(webAppNfcObj)	
+	return webAppNfc.Call("signDataUsingAuthKey", pin, digest).String()
 }
-
-func (si *authCertImp) GetCert(pin string) (cert js.Value) {
-	gl := js.Global()
-	webAppNfc := gl.Get(webAppNfcObj)
-	return webAppNfc.Call("readAuthCert")
+func (si *authCertImp) GetCert(pin string) (certJson string) {
+	webAppNfc := js.Global().Get(webAppNfcObj)	
+	return webAppNfc.Call("readAuthCert").String()
 }
-
-func genSignatureUsingAuthCert(pin string) (rsp *GenSignSignatureRsp, retErr error) {
-	return genSignSignatureInf(&authCertImp{}, pin)
-}
-
 
 func enterSignPIN(this js.Value, in []js.Value) interface{}{
 	gl := js.Global()
@@ -621,7 +507,7 @@ func enterSignPINOk(in []js.Value) {
 		result.Set("innerHTML", msg)
 	}
 
-	rsp, err := genSignSignature(pin)
+	rsp, err := jpkicli.GenerateSignature(&signCertImp{}, pin)
 	if err != nil {
 		result.Set("innerHTML", err.Error())
 		return
@@ -710,7 +596,7 @@ func recordLedger(this js.Value, in []js.Value) interface{} {
 			return
 		}
 
-		signedText, err := (&signCertImp{}).SignData(cacheUser.pin, recordLogText)
+		signedText, err := jpkicli.SignData(&signCertImp{}, cacheUser.pin, recordLogText)
 		if err != nil {
 			visibleResult("JPKI error: " + err.Error())
 			return

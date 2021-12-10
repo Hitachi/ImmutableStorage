@@ -150,7 +150,7 @@ func (cli *CAClient) ReenrollCAUser(id *immclient.UserID, req *immclient.Enrollm
 	return
 }
 
-func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, username string, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
+func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, userType, username string, userAttrs *[]immclient.Attribute, req *immclient.EnrollmentRequestNet) (cert []byte, retErr error) {
 	caSecret := immclient.RandStr(8)
 
 	_, err := adminID.GetIdentity(cli.UrlBase, username)
@@ -163,7 +163,8 @@ func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, username s
 	// register an LDAP user
 	regReq := &immclient.RegistrationRequest{
 		Name: username,
-		Type: "client",
+		Attributes: *userAttrs,
+		Type: userType,
 		MaxEnrollments: -1, //unlimit
 		Secret: caSecret,	
 	}
@@ -177,24 +178,9 @@ func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, username s
 	return cli.EnrollCAUser(username, caSecret, req)
 }
 
-func (cli *CAClient) addAffiliation(caRegID *immclient.UserID, affiliation string) (error) {
-	affL, err := caRegID.GetAllAffiliations(cli.UrlBase)
-	if err != nil {
-		return err
-	}
-	
-	for _, item := range affL.Affiliations {
-		if item.Name == affiliation {
-			return nil // The specifed affiliation already exists.
-		}
-	}
-
-	return caRegID.AddAffiliation(cli.UrlBase, affiliation)
-}
-
 func (cli *CAClient) RegisterAndEnrollAdmin(caRegID *immclient.UserID, regReq *immclient.RegistrationRequest, roleDurationYear time.Duration) ([]byte, error) {
 	// add an affilication
-	err := cli.addAffiliation(caRegID, regReq.Affiliation)
+	err := caRegID.CheckAndAddAffiliation(cli.UrlBase, regReq.Affiliation)
 	if err != nil {
 		return nil, err
 	}

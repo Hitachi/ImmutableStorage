@@ -370,4 +370,18 @@ caption {
 .passReqArea button {
     margin: 5px;
 }
-    
+
+.date-input {
+    float: right;
+    margin-top: 6px;
+    width: 85%
+}
+
+.date-input input {
+    width: 2.4em;
+    padding: 12px;
+    border: 2px solid silver;
+    border-radius: 4px;
+    resize: vertical;
+    font-size: 16px;
+}

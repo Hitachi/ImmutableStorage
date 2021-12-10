@@ -125,6 +125,7 @@ message ReadLedgerReq {
         Credential Cred = 1;
         string Key = 2;
         string StorageGroup = 3;
+        string Option = 4;
 }
 
 message ListChainCodeReq {
@@ -142,6 +143,7 @@ message RegisterUserRequest {
         Credential Cred = 1;
         string AuthType = 2;
         bytes AuthParam = 3;
+        bytes AppendAttr = 4;
 }
 
 message AuthParamLDAP {
@@ -188,6 +190,18 @@ message JPKIFuncReply {
         bytes Rsp = 1;
 }
 
+message BallotFuncRequest {
+        Credential Cred = 1;
+        string Func = 2;
+        bytes Req = 3;
+        string Time = 4;
+}
+
+message BallotFuncReply {
+        bytes Rsp = 1;
+        string Time = 2;
+}
+
 service ImmOperation {
         rpc CreateService(CreateServiceRequest) returns (Reply) {}
         rpc ExportService(ExportServiceRequest) returns (ExportServiceReply) {}
@@ -215,4 +229,5 @@ service ImmOperation {
         rpc EnrollUser(EnrollUserRequest) returns (EnrollUserReply) {}
         rpc CommCA(CommCARequest) returns (CommCAReply) {}
         rpc JPKIFunc(JPKIFuncRequest) returns (JPKIFuncReply) {}
+        rpc BallotFunc(BallotFuncRequest) returns (BallotFuncReply) {}
 }

@@ -633,60 +633,67 @@ func (id *UserID) RemoveAffiliation(urlBase, affiliation string) error {
 	return nil
 }
 
-func (id *UserID) Register(username, secret, ouType string, privilege *UserPrivilege, urlBase string) (string, error) {
-	req := &RegistrationRequest{Name: username}
-	maxEnrollments := -1
-
-	var attr []Attribute
-
-	if privilege != nil {
-		if privilege.GenCRL {
-			attr = append(attr, Attribute{Name: "hf.GenCRL", Value: "true"})
-		}
-		if privilege.StorageAdmin != "" {
-			attr = append(attr, Attribute{Name: StorageAdmin, Value: privilege.StorageAdmin, ECert: true})
-		}
-		if privilege.StorageGrpAdmin != "" {
-			affiliation := GrpAdmin + ":" + strings.ReplaceAll(privilege.StorageGrpAdmin, ".", ":")
-			affiliationAddF := true
-			
-			affiliationL, err := id.GetAllAffiliations(urlBase)
-			if err != nil {
-				return "", err
-			}
-			for _, item := range affiliationL.Affiliations {
-				if item.Name == affiliation {
-					affiliationAddF = false
-					break
-				}
-			}
-			if affiliationAddF {
-				err := id.AddAffiliation(urlBase, affiliation)
-				if err != nil {
-					return "", err
-				}
-			}
-
-			//attr = append(attr, Attribute{Name: "StorageGrpAdmin", Value: "true", ECert: false})
-			//attr = append(attr, Attribute{Name: "hf.Registrar.Roles", Value: "client", ECert: false})
-			//attr = append(attr, Attribute{Name: "hf.AffiliationMgr", Value: "true", ECert: false})
-			req.Affiliation = affiliation
+func (id *UserID) CheckAndAddAffiliation(urlBase, affiliation string) error {
+	if affiliation == "" {
+		return nil
+	}
+	
+	affL, err := id.GetAllAffiliations(urlBase)
+	if err != nil {
+		return err
+	}
+	
+	for _, item := range affL.Affiliations {
+		if item.Name == affiliation {
+			return nil // The specifed affiliation already exists.
 		}
 	}
 
-	if attr != nil {
-		req.Attributes = attr
+	return id.AddAffiliation(urlBase, affiliation)	
+}
+
+func privilegeToAttrAndAffiliation(privilege *UserPrivilege) (attr []Attribute, affiliation string) {
+	if privilege == nil {
+		return
 	}
-	if ouType != "" {
-		req.Type = ouType
+	
+	if privilege.GenCRL {
+		attr = append(attr, Attribute{Name: "hf.GenCRL", Value: "true"})
 	}
-	if maxEnrollments != -1 {
-		req.MaxEnrollments = maxEnrollments
+	if privilege.StorageAdmin != "" {
+		attr = append(attr, Attribute{Name: StorageAdmin, Value: privilege.StorageAdmin, ECert: true})
 	}
-	if secret != "" {
-		req.Secret = secret
+	if privilege.StorageGrpAdmin != "" {
+		affiliation = GrpAdmin + ":" + strings.ReplaceAll(privilege.StorageGrpAdmin, ".", ":")
 	}
 
+	return
+}
+
+func (id *UserID) RegisterObj(username, secret, ouType string, privilege *UserPrivilege, urlBase string) (string, error) {
+	attr, affiliation := privilegeToAttrAndAffiliation(privilege)
+	err := id.CheckAndAddAffiliation(urlBase, affiliation)
+	if err != nil {
+		return "", err
+	}		
+
+	req := &RegistrationRequest{
+		Name: username,
+		Secret: secret,
+		MaxEnrollments: -1, // unlimited
+		Attributes: attr,
+		Affiliation: affiliation,
+		Type: ouType,
+	}
+	
+	return id.Register(req, urlBase)
+}
+
+func (id *UserID) Register(req *RegistrationRequest, urlBase string) (string, error) {
+	if req.Name == "" {
+		return "", errors.New("invalid request")
+	}
+	
 	regReply := &RegistrationResponse{}
 	reqCA := &ReqCAParam{
 		Func: "Register",
@@ -729,7 +736,7 @@ func (id *UserID) CreateService(mspID string, priv, cert []byte, url string) err
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.CreateServiceRequest{MspID: mspID, Priv: priv, Cert: cert}
-	req.Cred, err = id.signMsg("CreateService", req)
+	req.Cred, err = id.SignMsg("CreateService", req)
 	if err != nil {
 		return err
 	}
@@ -752,7 +759,7 @@ func (id *UserID) ListService(url string) (list []*immop.ServiceAttribute, err e
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.ListServiceRequest{}
-	req.Cred, err = id.signMsg("ListService", req)
+	req.Cred, err = id.SignMsg("ListService", req)
 	if err != nil {
 		return
 	}
@@ -776,7 +783,7 @@ func (id *UserID) ExportService(hostname, url string) (serviceData []byte, err e
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.ExportServiceRequest{Hostname: hostname, }
-	req.Cred, err = id.signMsg("ExportService", req)
+	req.Cred, err = id.SignMsg("ExportService", req)
 	if err != nil {
 		return
 	}
@@ -803,7 +810,7 @@ func (id *UserID) ImportService(serviceData []byte, url string) (err error) {
 	proto.Unmarshal(serviceData, peer)
 	
 	req := &immop.ImportServiceRequest{Service: peer, }
-	req.Cred, err = id.signMsg("ImportService", req)
+	req.Cred, err = id.SignMsg("ImportService", req)
 	if err != nil {
 		return
 	}
@@ -821,7 +828,7 @@ func (id *UserID) RemoveServiceFromCh(hostName, portName, url string) (err error
 
 	cli := immop.NewImmOperationClient(conn)
 	req := &immop.RemoveServiceRequest{Peer: &immop.ServiceSummary{Hostname: hostName, Port: portName}, }
-	req.Cred, err = id.signMsg("RemoveServiceFromCh", req)
+	req.Cred, err = id.SignMsg("RemoveServiceFromCh", req)
 	if err != nil {
 		return
 	}
@@ -840,7 +847,7 @@ func (id *UserID) ListImportedService(url string) (list []*immop.ServiceSummary,
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.ListImportedServiceRequest{}
-	req.Cred, err = id.signMsg("ListImportedService", req)
+	req.Cred, err = id.SignMsg("ListImportedService", req)
 	if err != nil {
 		return
 	}
@@ -863,7 +870,7 @@ func (id *UserID) CreateChannel(channelID, url string) (err error) {
 
 	cli := immop.NewImmOperationClient(conn)
 	req := &immop.CreateChannelRequest{ChannelID: channelID, }
-	req.Cred, err = id.signMsg("CreateChannel", req)
+	req.Cred, err = id.SignMsg("CreateChannel", req)
 	if err != nil {
 		return
 	}
@@ -872,7 +879,7 @@ func (id *UserID) CreateChannel(channelID, url string) (err error) {
 	return
 }
 
-func (id *UserID) signMsg(funcName string, param proto.Message) (cred *immop.Credential , retErr error) {
+func (id *UserID) SignMsg(funcName string, param proto.Message) (cred *immop.Credential , retErr error) {
 	cred = &immop.Credential{}
 	msg := []byte(funcName)
 	
@@ -935,7 +942,7 @@ func (id *UserID) JoinChannel(block []byte, url string) error {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.PropReq{Msg: block,}
-	req.Cred, err = id.signMsg("JoinChannel", req)
+	req.Cred, err = id.SignMsg("JoinChannel", req)
 	if err != nil {
 		return err
 	}
@@ -953,7 +960,7 @@ func (id *UserID) JoinChannel(block []byte, url string) error {
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
 	for {
 		propReq.Cred = nil
-		propReq.Cred, _ = id.signMsg("SendSignedProp", propReq)
+		propReq.Cred, _ = id.SignMsg("SendSignedProp", propReq)
 		reply, err := cli.SendSignedProp(context.Background(), propReq)
 		if err != nil {
 			return errors.New("failed to send a signature: " + err.Error())
@@ -980,7 +987,7 @@ func (id *UserID) GetConfigBlock(chName, url string) ([]byte, error) {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.GetConfigBlockReq{ChName: chName}
-	req.Cred, err = id.signMsg("GetConfigBlock", req)
+	req.Cred, err = id.SignMsg("GetConfigBlock", req)
 	if err != nil {
 		return nil, err
 	}
@@ -1003,7 +1010,7 @@ func (id *UserID) InstallChainCode(url string) error {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.InstallCC{Cds: nil, }
-	req.Cred, err = id.signMsg("InstallChainCode", req)
+	req.Cred, err = id.SignMsg("InstallChainCode", req)
 	if err != nil {
 		return  err
 	}
@@ -1019,7 +1026,7 @@ func (id *UserID) InstallChainCode(url string) error {
 	}
 
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedProp", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedProp", propReq)
 	_, err = cli.SendSignedProp(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature: " + err.Error())
@@ -1038,7 +1045,7 @@ func (id *UserID) InstantiateChainCode(url, chName string) error {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.InstantiateReq{ChannelID: chName,}
-	req.Cred, err = id.signMsg("Instantiate", req)
+	req.Cred, err = id.SignMsg("Instantiate", req)
 	if err != nil {
 		return  err
 	}
@@ -1057,7 +1064,7 @@ func (id *UserID) InstantiateChainCode(url, chName string) error {
 	propReq := &immop.PropReq{Msg: signature, TaskID: taskID, }
 	for {
 		propReq.Cred = nil
-		propReq.Cred, _ = id.signMsg("SendSignedPropOrderer", propReq)
+		propReq.Cred, _ = id.SignMsg("SendSignedPropOrderer", propReq)
 		rsp, err = cli.SendSignedPropOrderer(context.Background(), propReq)
 		if err != nil {
 			return errors.New("failed to send a signature: " + err.Error())
@@ -1076,7 +1083,7 @@ func (id *UserID) InstantiateChainCode(url, chName string) error {
 	}
 
 	propReq = &immop.PropReq{Msg: signature, TaskID: taskID, } 
-	propReq.Cred, _ = id.signMsg("SendSignedProp", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedProp", propReq)
 	_, err = cli.SendSignedProp(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature for orderer: " + err.Error())
@@ -1095,7 +1102,7 @@ func (id *UserID) ListChannelInPeer(url string) ([]string, error) {
 	defer conn.Close()
 
 	cli := immop.NewImmOperationClient(conn)
-	cred, err := id.signMsg("ListChannelInPeer", nil)
+	cred, err := id.SignMsg("ListChannelInPeer", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1117,7 @@ func (id *UserID) ListChannelInPeer(url string) ([]string, error) {
 	}
 
 	req := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	req.Cred, _ = id.signMsg("SendSignedPropAndRspDone", req)
+	req.Cred, _ = id.SignMsg("SendSignedPropAndRspDone", req)
 	rsp, err = cli.SendSignedPropAndRspDone(context.Background(), req)
 	if err != nil {
 		return nil, err
@@ -1136,7 +1143,7 @@ func (id *UserID) ListAvailableStorageGroup(url string) ([]string, error) {
 	defer conn.Close()
 
 	cli := immop.NewImmOperationClient(conn)
-	cred, err := id.signMsg("ListChannelInMyOU", nil)
+	cred, err := id.SignMsg("ListChannelInMyOU", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,7 +1181,7 @@ func (id *UserID) ActivateChannel(url, chName string) error {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.ActivateChannelReq{ChannelID: chName, }
-	req.Cred, err = id.signMsg("ActivateChannel", req)
+	req.Cred, err = id.SignMsg("ActivateChannel", req)
 	if err != nil {
 		return err
 	}
@@ -1189,7 +1196,7 @@ func (id *UserID) ActivateChannel(url, chName string) error {
 	}
 
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedProp", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedProp", propReq)
 	_, err = cli.SendSignedProp(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature: " + err.Error())
@@ -1208,7 +1215,7 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.RecordLedgerReq{Key: key, Log: msgLog, StorageGroup: storageGrp, }
-	req.Cred, err = id.signMsg("RecordLedger", req)
+	req.Cred, err = id.SignMsg("RecordLedger", req)
 	if err != nil {
 		return  err
 	}
@@ -1225,7 +1232,7 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 	}
 
 	propReq := &immop.PropReq{Msg: signature, WaitEventF: true, TaskID: taskID,}
-	propReq.Cred, _ = id.signMsg("SendSignedPropOrderer", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropOrderer", propReq)
 	rsp, err = cli.SendSignedPropOrderer(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature to peers: " + err.Error())
@@ -1233,7 +1240,7 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 
 	signature, _ = id.signData(rsp.Proposal)
 	propReq = &immop.PropReq{Msg: signature, TaskID: taskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedPropAndRsp", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropAndRsp", propReq)
 	rsp, err = cli.SendSignedPropAndRsp(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature to an orderer: " + err.Error())
@@ -1241,7 +1248,7 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 
 	signature, _ = id.signData(rsp.Proposal)
 	propReq = &immop.PropReq{Msg: signature, TaskID: taskID, } 
-	propReq.Cred, _ = id.signMsg("SendSignedPropAndRspDone", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropAndRspDone", propReq)
 	rsp, err = cli.SendSignedPropAndRspDone(context.Background(), propReq)
 	if err != nil {
 		return errors.New("failed to send a signature to event handler on peer")
@@ -1250,44 +1257,56 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 	return nil
 }
 
-func (id *UserID) ReadLedger(storageGrp, key, url string) (*[]queryresult.KeyModification, error) {
+func (id *UserID) ReadLedgerHistory(storageGrp, key, url, option string, history interface{}) (error) {
 	conn, err := id.dial(url)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer conn.Close()
 
 	cli := immop.NewImmOperationClient(conn)
 
-	req := &immop.ReadLedgerReq{Key: key, StorageGroup: storageGrp, }
-	req.Cred, err = id.signMsg("ReadLedger", req)
+	req := &immop.ReadLedgerReq{Key: key, StorageGroup: storageGrp, Option: option, }
+	req.Cred, err = id.SignMsg("ReadLedger", req)
 	if err != nil {
-		return  nil, err
+		return err
 	}
 
 	rsp, err := cli.ReadLedger(context.Background(), req)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	signature, err := id.signData(rsp.Proposal)
 	if err != nil {
-		return nil, err
+		return  err
 	}
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedPropAndRspDone", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropAndRspDone", propReq)
 	rsp, err = cli.SendSignedPropAndRspDone(context.Background(), propReq)
 	if err != nil {
-		return nil, errors.New("failed to send a signature to a peer: " + err.Error())
+		return errors.New("failed to send a signature to a peer: " + err.Error())
 	}
 
-	historyV := &[]queryresult.KeyModification{}
-	err = json.Unmarshal(rsp.Proposal, historyV)
+	err = json.Unmarshal(rsp.Proposal, history)
 	if err != nil {
-		return nil, errors.New("failed to unmarshal history: " + err.Error())
+		//		return errors.New("failed to unmarshal history: " + err.Error())
+		return errors.New("failed to unmarshal history: " + err.Error() + ": " + string(rsp.Proposal))
 	}
 
-	return historyV, nil
+	return nil // success
+}
+
+func (id *UserID) ReadLedger(storageGrp, key, url string) (historyV *[]queryresult.KeyModification, retErr error) {
+	historyV = &[]queryresult.KeyModification{}
+	retErr = id.ReadLedgerHistory(storageGrp, key, url, "", historyV)
+	return
+}
+
+func (id *UserID) ListTxId(storageGrp, key, url string) (txIDs *[]string, retErr error) {
+	txIDs = &[]string{}
+	retErr = id.ReadLedgerHistory(storageGrp, key, url, "txId", txIDs)
+	return
 }
 
 func (id *UserID) QueryBlockByTxID(storageGrp, txID, url string) (*common.Block, error) {
@@ -1300,7 +1319,7 @@ func (id *UserID) QueryBlockByTxID(storageGrp, txID, url string) (*common.Block,
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.QueryBlockByTxIDReq{TxID: txID, StorageGroup: storageGrp, }
-	req.Cred, err = id.signMsg("QueryBlockByTxID", req)
+	req.Cred, err = id.SignMsg("QueryBlockByTxID", req)
 	if err != nil {
 		return  nil, err
 	}
@@ -1315,7 +1334,7 @@ func (id *UserID) QueryBlockByTxID(storageGrp, txID, url string) (*common.Block,
 		return nil, err
 	}
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedPropAndRspDone", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropAndRspDone", propReq)
 	rsp, err = cli.SendSignedPropAndRspDone(context.Background(), propReq)
 	if err != nil {
 		return nil, errors.New("failed to send a signature to a peer: " + err.Error())
@@ -1340,7 +1359,7 @@ func (id *UserID) listChainCode(url, option string) ([]string, error) {
 	cli := immop.NewImmOperationClient(conn)
 
 	req := &immop.ListChainCodeReq{Option: option, }
-	req.Cred, err = id.signMsg("ListChainCode", req)
+	req.Cred, err = id.SignMsg("ListChainCode", req)
 	if err != nil {
 		return nil, err
 	}
@@ -1352,7 +1371,7 @@ func (id *UserID) listChainCode(url, option string) ([]string, error) {
 
 	signature, err := id.signData(rsp.Proposal)
 	propReq := &immop.PropReq{Msg: signature, TaskID: rsp.TaskID, }
-	propReq.Cred, _ = id.signMsg("SendSignedPropAndRspDone", propReq)
+	propReq.Cred, _ = id.SignMsg("SendSignedPropAndRspDone", propReq)
 	rsp, err = cli.SendSignedPropAndRspDone(context.Background(), propReq)
 	if err != nil {
 		return nil, errors.New("failed to send a signature to peer")
@@ -1548,7 +1567,11 @@ func (id *UserID) DisableEnrollment(urlBase, username string) error {
 	return nil // success
 }
 
-func (id *UserID) RegisterUser(authType string, authParam []byte, url string) (secret string, retErr error) {
+func (id *UserID) RegisterUser(req *immop.RegisterUserRequest, url string) (secret string, retErr error) {
+	if req == nil {
+		return "", fmt.Errorf("invalid request")
+	}
+	
 	conn, err := id.dial(url)
 	if err != nil {
 		return "", err
@@ -1557,11 +1580,7 @@ func (id *UserID) RegisterUser(authType string, authParam []byte, url string) (s
 
 	cli := immop.NewImmOperationClient(conn)
 	
-	req := &immop.RegisterUserRequest{
-		AuthType: authType,
-		AuthParam: authParam,
-	}
-	req.Cred, err = id.signMsg("RegisterUser", req)
+	req.Cred, err = id.SignMsg("RegisterUser", req)
 	if err != nil {
 		return "", err
 	}
@@ -1572,4 +1591,61 @@ func (id *UserID) RegisterUser(authType string, authParam []byte, url string) (s
 	}
 
 	return "", nil // success
+}
+
+func GetRole(certRaw []byte) string {
+	uCertPem, _ := pem.Decode(certRaw)
+	uCert, err := x509.ParseCertificate(uCertPem.Bytes)
+	if err != nil {
+		return "" // unexpected certificate
+	}
+	
+	return GetCertRole(uCert)
+}
+
+func GetCertRole(uCert *x509.Certificate) (role string) {
+	for _, ext := range uCert.Extensions {
+		if ! ext.Id.Equal(asn1.ObjectIdentifier{1, 2, 3, 4, 5, 6, 7, 8, 1}) {
+			continue
+		}
+
+		attrs := &Attributes{}
+		err := json.Unmarshal(ext.Value, attrs)
+		if err != nil {
+			continue
+		}
+		
+		for name, value := range attrs.Attrs {
+			roleName := strings.TrimPrefix(name, "imm.Role.")
+			if roleName == name || value != "true" {
+				continue
+			}
+
+			role = roleName
+			return
+		}
+	}
+
+	role = "GeneralUser"
+	return 
+}
+
+func (id *UserID) GetRole() string {
+	return GetRole(id.Cert)
+}
+
+func (id *UserID) GetRegRoles(url, username string) (roles []string) {
+	roles = []string{}
+	attrs, err := id.GetIdentity(url, id.Name)
+	if err != nil {
+		return // no privilege
+	}
+
+	for _, attr := range attrs.Attributes {
+		if attr.Name == "hf.Registrar.Roles" {
+			roles = strings.Split(attr.Value, ",")
+		}
+	}
+
+	return // no privilege
 }

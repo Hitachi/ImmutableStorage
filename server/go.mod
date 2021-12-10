@@ -9,6 +9,7 @@ replace immop => ./immop
 replace fabconf => ./fabconf
 
 require (
+	ballotcli v0.0.0-00010101000000-000000000000 // indirect
 	cacli v0.0.0-00010101000000-000000000000 // indirect
 	fabconf v0.0.0-00010101000000-000000000000
 	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
@@ -44,7 +45,9 @@ require (
 	google.golang.org/protobuf v1.24.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0
 	immclient v0.0.0-00010101000000-000000000000
+	immconf v0.0.0-00010101000000-000000000000 // indirect
 	immop v0.0.0-00010101000000-000000000000
+	immsign v0.0.0-00010101000000-000000000000 // indirect
 	immutil v0.0.0-00010101000000-000000000000
 	jpkicli v0.0.0-00010101000000-000000000000 // indirect
 	k8s.io/api v0.18.3
@@ -58,3 +61,9 @@ replace immclient => ../web/immclient
 replace jpkicli => ../app/jpki/clt
 
 replace cacli => ./cacli
+
+replace ballotcli => ../app/secretBallot/clt
+
+replace immconf => ../web/immconf
+
+replace immsign => ../app/immsign

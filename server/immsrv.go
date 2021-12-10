@@ -26,6 +26,7 @@ import (
 	"immclient"
 	"cacli"
 	"jpkicli"
+	"ballotcli"
 
 	"context"
 	"google.golang.org/grpc"
@@ -129,6 +130,9 @@ const (
 
 	affnJPKIPrefix = "FedJPKI:"
 	affnLDAPPrefix = "FedLDAP:"
+	authJPKIPrefix = "JPKI"
+	authLDAPPrefix = "LDAP"
+	authCAPrefix = "CA"
 )
 
 type signerState struct {
@@ -3693,6 +3697,9 @@ func (s *server) ReadLedger(ctx context.Context, req *immop.ReadLedgerReq) (repl
 			Input: &pp.ChaincodeInput{Args: [][]byte{[]byte("getLog"), []byte(req.Key) }},
 		},
 	}
+	if req.Option != "" {
+		cis.ChaincodeSpec.Input = &pp.ChaincodeInput{Args: [][]byte{[]byte("getLog"), []byte(req.Key), []byte(req.Option) }}
+	}
 
 	proposal, _, err := utils.CreateChaincodeProposalWithTxIDNonceAndTransient(txId, common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, nonce, creatorData, nil)
 	if err != nil {
@@ -3911,8 +3918,8 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	caName := s.parentCert.Subject.CommonName
 	caCli := cacli.NewCAClient("https://"+caName+cacli.DefaultPort)
 	
-	adminID, err := immutil.GetAdminID(username, caName)
-	if err != nil {
+	adminID, authType, err := immutil.GetAdminID(username, caName)
+	if err != nil || strings.HasPrefix(authType, authCAPrefix) {
 		// request to CA
 		reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
 		return
@@ -3921,7 +3928,7 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	
 
 	// Enrolling user is federated user
-	retErr = authenticateFedUser(adminUser, username, req.Secret)
+	retErr = authenticateFedUser(adminUser, authType, username, req.Secret)
 	if retErr != nil {
 		return // authentication failure
 	}
@@ -3933,38 +3940,24 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	}
 
 	// register and enroll user
-	reply.Cert, retErr = caCli.RegisterAndEnrollUser(adminUser, username, enrollReq)
+	userType := "client"
+	userAttrs := &[]immclient.Attribute{}
+	if strings.HasSuffix(authType, ballotSuffix) {
+		userType, userAttrs = ballotGetUserTypeAndAttr()
+	}
+	reply.Cert, retErr = caCli.RegisterAndEnrollUser(adminUser, userType, username, userAttrs, enrollReq)
 	return
 }
 
-func authenticateFedUser(adminID *immclient.UserID, username, secret string) (retErr error) {
-	caCli := adminID.Client.(*cacli.CAClient)
-	adminAttr, err := adminID.GetIdentity(caCli.UrlBase, adminID.Name)
-	if err != nil {
-		retErr = fmt.Errorf("authentication error")
-		return
+func authenticateFedUser(adminID *immclient.UserID, authType, username, secret string) (error) {
+	if strings.HasPrefix(authType, authLDAPPrefix) {
+		return authenticateLDAPUser(adminID, authType, username, secret)
 	}
-
-	if strings.HasPrefix(adminAttr.Affiliation, affnLDAPPrefix) {
-		err = authenticateLDAPUser(adminAttr, username, secret)
-	} else if strings.HasPrefix(adminAttr.Affiliation, affnJPKIPrefix) {
-		retErr = fmt.Errorf("unsupported authentication type ")
-		return
-	} else {
-		retErr = fmt.Errorf("unknown authentication type")
-		return
+	if strings.HasPrefix(authType, authJPKIPrefix) {
+		return fmt.Errorf("unsupported authentication type ")
 	}
 	
-	if err != nil {
-		if err.Error() == "invalid user" {
-			// another authentication type
-		}
-		
-		retErr = fmt.Errorf("authentication error")
-		return
-	}
-
-	return // success
+	return fmt.Errorf("unknown authentication type")
 }
 
 func (s *server) CommCA(ctx context.Context, req *immop.CommCARequest) (reply *immop.CommCAReply, retErr error) {
@@ -4004,8 +3997,8 @@ func (s *server) CommCA(ctx context.Context, req *immop.CommCARequest) (reply *i
 func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []byte) (retRsp []byte, retErr error) {
 	switch req.Func {
 	case "GetAllIdentities":
-		adminID, err := getAdminJPKI(user.Issuer.CommonName)
-		if err != nil  || adminID.Name != user.Subject.CommonName {
+		_, _, err := jpkiGetAdminID(user.Subject.CommonName, user.Issuer.CommonName)
+		if err != nil  { // not JPKI user
 			break
 		}
 
@@ -4017,7 +4010,7 @@ func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []by
 		}
 
 		for i, _ := range ids.Identities {
-			ids.Identities[i].Attributes = removePubKeyAttr(&ids.Identities[i].Attributes)
+			ids.Identities[i].Attributes = jpkiRemovePubKeyAttr(&ids.Identities[i].Attributes)
 		}
 
 		retRsp, err = json.Marshal(reply)
@@ -4027,8 +4020,8 @@ func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []by
 		}
 		return // success
 	case "GetIdentity":
-		adminID, err := getAdminJPKI(user.Issuer.CommonName)
-		if err != nil  || adminID.Name != user.Subject.CommonName {
+		_, _, err := jpkiGetAdminID(user.Subject.CommonName, user.Issuer.CommonName)
+		if err != nil  { // not JPKI user
 			break
 		}
 
@@ -4039,7 +4032,7 @@ func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []by
 			break
 		}
 
-		id.Attributes = removePubKeyAttr(&id.Attributes)
+		id.Attributes = jpkiRemovePubKeyAttr(&id.Attributes)
 		retRsp, err = json.Marshal(reply)
 		if err != nil {
 			retErr = fmt.Errorf("failed to marshal a response: %s", err)
@@ -4052,17 +4045,6 @@ func modifyCAResponse(user *x509.Certificate, req *immop.CommCARequest, rsp []by
 	return
 }
 
-func removePubKeyAttr(attrs *[]immclient.Attribute) (newAttrs []immclient.Attribute) {
-	for _, attr := range *attrs {
-		if attr.Name == "JPKI.AuthPub" || attr.Name == "JPKI.SignPub" {
-			continue
-		}
-		
-		newAttrs = append(newAttrs, attr)
-	}
-	return
-}
-
 func (s *server) JPKIFunc(ctx context.Context, req *immop.JPKIFuncRequest) (reply *immop.JPKIFuncReply, retErr error) {
 	reply = &immop.JPKIFuncReply{}
 
@@ -4071,8 +4053,8 @@ func (s *server) JPKIFunc(ctx context.Context, req *immop.JPKIFuncRequest) (repl
 		var err error
 		reply.Rsp, err = getRequiredPrivInfo(s.parentCert.Subject.CommonName)
 		if err != nil {
-			//retErr = fmt.Errorf("failed to get an information for JPKI")
-			retErr = fmt.Errorf("failed to get an information for JPKI: " + err.Error())
+			retErr = fmt.Errorf("failed to get an information for JPKI")
+			//retErr = fmt.Errorf("failed to get an information for JPKI: " + err.Error())
 			return
 		}
 	case jpkicli.FRegisterJPKIUser:
@@ -4085,6 +4067,49 @@ func (s *server) JPKIFunc(ctx context.Context, req *immop.JPKIFuncRequest) (repl
 		reply.Rsp, retErr = debugDataJPKI(s.parentCert.Subject.CommonName, req.Req)
 	default:
 		retErr = fmt.Errorf("unknown function")
+	}
+
+	return
+}
+
+func (s *server) BallotFunc(ctx context.Context, req *immop.BallotFuncRequest) (reply *immop.BallotFuncReply, retErr error) {
+	reply = &immop.BallotFuncReply{}
+
+	reqTime := &time.Time{}
+	err := reqTime.UnmarshalText([]byte(req.Time))
+	if err != nil {
+		retErr = fmt.Errorf("invalid request")
+		return
+	}
+
+	now := time.Now()
+	diffMins := now.Sub(*reqTime).Minutes()
+	if (-3  >= diffMins) || (diffMins >= 3) {
+		// The requestor's time is incorrect.
+		reply.Time = now.Format(time.RFC3339)
+		return // retry request
+	}
+
+	cert, retErr := s.checkCredential("BallotFunc", req)
+	if retErr != nil {
+		return
+	}
+
+	switch req.Func {
+	case ballotcli.FCreateBox:
+		reply.Rsp, retErr = ballotCreateBox(req, cert)
+	case ballotcli.FSelectVoter:
+		reply.Rsp, retErr = ballotSelectVoter(req, cert)
+	case ballotcli.FGetPaper:
+		reply.Rsp, retErr = ballotGetPaper(req, cert)
+	case ballotcli.FGetSealKey:
+		reply.Rsp, retErr = ballotGetSealKey(req, cert)
+	case ballotcli.FVote:
+		reply.Rsp, retErr = ballotVote(req, cert)
+	case ballotcli.FGetResultVote:
+		reply.Rsp, retErr = ballotGetVotingResult(req, cert)
+	case ballotcli.FGetVoterState:
+		reply.Rsp, retErr = ballotGetVoterState(req, cert)
 	}
 
 	return

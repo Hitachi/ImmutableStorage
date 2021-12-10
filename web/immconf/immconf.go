@@ -32,12 +32,10 @@ type ImmConfidential struct {
 }
 
 func GetConfidentialTool(myPrivPem, otherPubPem []byte, keyPass string) (conf *ImmConfidential, retErr error) {
-	conf = &ImmConfidential{}
-	
 	privData, _ := pem.Decode(myPrivPem)
 
 	if privData == nil || privData.Type != "PRIVATE KEY" {
-		retErr = fmt.Errorf("%s is not private key", privData.Type)
+		retErr = fmt.Errorf("unexpected private key")
 		return
 	}
 
@@ -97,6 +95,11 @@ func GetConfidentialTool(myPrivPem, otherPubPem []byte, keyPass string) (conf *I
 		return
 	}
 
+	conf, retErr = GetSharedKey(priv, pub)
+	return
+}
+
+func GetSharedKey(priv *ecdsa.PrivateKey, pub *ecdsa.PublicKey) (conf *ImmConfidential, retErr error) {
 	sharedKey, _ := pub.Curve.ScalarMult(pub.X, pub.Y, priv.D.Bytes())
 	block, err := aes.NewCipher(sharedKey.Bytes())
 	if err != nil {
@@ -104,7 +107,9 @@ func GetConfidentialTool(myPrivPem, otherPubPem []byte, keyPass string) (conf *I
 		return
 	}
 
-	conf.blk = &block
+	conf = &ImmConfidential{
+		blk: &block,
+	}
 	return
 }
 

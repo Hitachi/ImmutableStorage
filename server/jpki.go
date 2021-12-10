@@ -53,6 +53,9 @@ var signca01 []byte
 //go:embed signca02.cer
 var signca02 []byte
 
+const (
+	defaultJPKIGrpName = "@JPKI"
+)
 
 func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
 	authParam := &immop.AuthParamJPKI{}
@@ -61,8 +64,12 @@ func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immo
 		return nil, fmt.Errorf("unexpected authentication parameter: %s", err)
 	}
 
-	fedGrpName := strings.TrimPrefix(authParam.UserNameOnCA, "@")
-	if fedGrpName == authParam.UserNameOnCA {
+	username :=  authParam.UserNameOnCA
+	if username == "" {
+		username = defaultJPKIGrpName
+	}
+	fedGrpName := strings.TrimPrefix(username, "@")
+	if fedGrpName == username {
 		return nil, fmt.Errorf("invalid administrator name")
 	}
 	
@@ -72,7 +79,7 @@ func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immo
 		Attributes: []immclient.Attribute{
 			immclient.Attribute{Name: "JPKI.ImportItems", Value: authParam.ImportItems, ECert: false},
 			immclient.Attribute{Name: "hf.Registrar.Roles", Value: "client", ECert: false},
-			immclient.Attribute{Name: "hf.Registrar.Attributes", Value: "*", ECert: false},
+			immclient.Attribute{Name: "hf.Registrar.Attributes", Value: AUTH_UserParam, ECert: false},
 		},
 		Affiliation: affiliation,
 		Type: "client",
@@ -83,11 +90,19 @@ func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immo
 	return caCli.RegisterAndEnrollAdmin(caRegID, regReq, 1/*one year*/)
 }
 
-func getAdminJPKI(caName string) (id *immclient.UserID, retErr error) {
-	tmpID, err := immutil.GetAdminJPKI(caName)
-	if err != nil {
-		retErr = err
+func jpkiGetAdminID(username, caName string) (id *immclient.UserID, authType string, retErr error) {
+	if username == "" {
+		username = defaultJPKIGrpName
+	}
+	
+	tmpID, authType, retErr := immutil.GetAdminID(username, caName)
+	if retErr != nil {
 		return // error
+	}
+
+	if !strings.HasPrefix(authType, "JPKI") {
+		retErr = fmt.Errorf("The specified user is not administrator for JPKI")
+		return
 	}
 	
 	id = &immclient.UserID{
@@ -101,7 +116,7 @@ func getAdminJPKI(caName string) (id *immclient.UserID, retErr error) {
 
 func getRequiredPrivInfo(caName string) (rsp []byte, retErr error) {
 	var id *immclient.UserID
-	id, retErr = getAdminJPKI(caName)
+	id, _, retErr = jpkiGetAdminID("", caName)
 	if retErr != nil {
 		return
 	}
@@ -117,6 +132,11 @@ func getRequiredPrivInfo(caName string) (rsp []byte, retErr error) {
 }
 
 func getPrivInfoAttr(id *immclient.UserID) (string, error) {
+	role := id.GetRole()
+	if role != "GeneralUser" {
+		return jpkicli.PrivTypeSignCert, nil // success
+	}
+	
 	adminAttr, err := id.GetIdentity("", id.Name)
 	if err != nil {
 		return "", fmt.Errorf("failed to get attributes of the administrator for JPKI: " + err.Error())
@@ -131,17 +151,35 @@ func getPrivInfoAttr(id *immclient.UserID) (string, error) {
 	return "", fmt.Errorf("unexpected CA response")
 }
 
-func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
-	var id *immclient.UserID
-	id, retErr = getAdminJPKI(caName)
-	if retErr != nil {
-		return
-	}
+type jpkiPrivacyInfo struct {
+	FullName string
+	Birthday string
+	Gender string
+	Address string
+	AltChInName string
+	AltChInAddr string
+}
 
+type jpkiAuthUserParam struct {
+	AuthPub string
+	SignPub string
+	NotBefore string
+	NotAfter string
+
+	PrivacyInfo jpkiPrivacyInfo
+}
+
+func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 	uReq := &jpkicli.RegisterJPKIUserRequest{}
 	err := json.Unmarshal(req, uReq)
 	if err != nil {
 		retErr = fmt.Errorf("unexpected request")
+		return
+	}
+
+	id, authType, err := jpkiGetAdminID(uReq.GroupName, caName)
+	if err != nil {
+		retErr = err
 		return
 	}
 
@@ -169,7 +207,7 @@ func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 		retErr = fmt.Errorf("unexpected request")
 		return
 	}
-	if privType == "signCert" && uReq.SignCert == nil {
+	if privType == jpkicli.PrivTypeSignCert && uReq.SignCert == nil {
 		retErr = fmt.Errorf("unexpected request")
 		return
 	}
@@ -188,43 +226,64 @@ func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 		return
 	}
 
-	
 	// authentication success
 	authPubAsn1 := x509.MarshalPKCS1PublicKey(authPubKey)
 	authPubBase64 := base64.StdEncoding.EncodeToString(authPubAsn1)
 	signPubAsn1 := x509.MarshalPKCS1PublicKey(signPubKey)
 	signPubBase64 := base64.StdEncoding.EncodeToString(signPubAsn1)
 
-	fmt.Printf("authPubBase64:\n%s\n", authPubBase64)
-	fmt.Printf("signPubBase64:\n%s\n", signPubBase64)
+	//fmt.Printf("authPubBase64:\n%s\n", authPubBase64)
+	//fmt.Printf("signPubBase64:\n%s\n", signPubBase64)
+
+	_, err = getJPKIUsernameByPubKey(id, authPubAsn1)
+	if err == nil {
+		// This user has been already registered
+		retErr = fmt.Errorf("this user has been already registerd")
+		return
+	}
 
 	jpkiUsername := "jp" + randName(8) + id.Name
 	regReq := &immclient.RegistrationRequest{
 		Name: jpkiUsername,
-		Attributes: []immclient.Attribute{
-			immclient.Attribute{Name: "JPKI.AuthPub", Value: authPubBase64, ECert: false},
-			immclient.Attribute{Name: "JPKI.SignPub", Value: signPubBase64, ECert: false},
-		},
 		Type: "client",
 		MaxEnrollments: 1,
 	}
-	if privType == jpkicli.PrivTypeSignCert || privType == jpkicli.PrivTypeAuthCert {
-		notBefore, notAfter, err := isValidCert(uReq.AuthCert)
-		if err != nil {
-			retErr = err
-			return
-		}
-
-		regReq.Attributes = append(regReq.Attributes, immclient.Attribute{Name: "JPKI.NotBefore", Value: notBefore, ECert: false})
-		regReq.Attributes = append(regReq.Attributes, immclient.Attribute{Name: "JPKI.NotAfter", Value: notAfter, ECert: false})
+	jpkiAuthUserParam := &jpkiAuthUserParam{
+		AuthPub: authPubBase64,
+		SignPub: signPubBase64,
 	}
-	if privType == jpkicli.PrivTypeSignCert {
-		privacyAttrs, err := getSignCertAttr(uReq.SignCert)
+	
+	if privType == jpkicli.PrivTypeSignCert || privType == jpkicli.PrivTypeAuthCert {
+		jpkiAuthUserParam.NotBefore, jpkiAuthUserParam.NotAfter, err = isValidCert(uReq.AuthCert)
 		if err != nil {
 			retErr = err
 			return
 		}
-		regReq.Attributes = append(regReq.Attributes, privacyAttrs...)
+	}
+	
+	if privType == jpkicli.PrivTypeSignCert {
+		jpkiAuthUserParam.PrivacyInfo, err = getSignCertAttr(uReq.SignCert)
+		if err != nil {
+			retErr = err
+			return
+		}
+	}
+
+	authUserParam, _ := json.Marshal(jpkiAuthUserParam)
+	regReq.Attributes = append(regReq.Attributes,
+		immclient.Attribute{Name: AUTH_UserParam, Value: string(authUserParam), ECert: false})
+
+	if authType == ballotAuthTypeJPKI {
+		retErr = ballotAuthenticateJPKIUser(id, jpkiAuthUserParam)
+		if retErr != nil {
+			return // error
+		}
+		userType, attr := ballotGetUserTypeAndAttr()
+		regReq.Type = userType
+		regReq.Attributes = append(regReq.Attributes, *attr...)
+		regReq.MaxEnrollments = -1 // unlimited
+		_, retErr = id.Client.(*cacli.CAClient).RegisterCAUser(id, regReq)
+		return
 	}
 
 	_, retErr = id.Client.(*cacli.CAClient).RegisterCAUser(id, regReq)
@@ -267,7 +326,7 @@ func enrollJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 
 	username := csrReq.Subject.CommonName
 
-	adminID, err := getAdminJPKI(caName)
+	adminID, _, err := jpkiGetAdminID(username, caName)
 	if err != nil {
 		retErr = err
 		return
@@ -282,15 +341,24 @@ func enrollJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 	var userAuthPub []byte
 	var userSignPub []byte
 	var pub []byte
+	authUserParam := &jpkiAuthUserParam{}
 	for _, attr := range userAttr.Attributes {
-		if attr.Name == "JPKI.AuthPub" {
-			userAuthPub, _ = base64.StdEncoding.DecodeString(attr.Value)
+		if attr.Name != AUTH_UserParam {
 			continue
 		}
-		if attr.Name == "JPKI.SignPub" {
-			userSignPub, _ = base64.StdEncoding.DecodeString(attr.Value)
+		
+		err = json.Unmarshal([]byte(attr.Value), authUserParam)
+		if err == nil {
+			break
 		}
 	}
+	if authUserParam.AuthPub != "" {
+		userAuthPub, _ = base64.StdEncoding.DecodeString(authUserParam.AuthPub)
+	}
+	if authUserParam.SignPub != "" {
+		userSignPub, _ = base64.StdEncoding.DecodeString(authUserParam.SignPub)
+	}
+	
 
 	if uReq.AuthPub != nil && bytes.Equal(uReq.AuthPub, userAuthPub) {
 		pub = uReq.AuthPub
@@ -381,11 +449,31 @@ func getJPKIUsername(caName string, req []byte) (rsp []byte, retErr error) {
 	}
 
 	// authentication success
-	adminID, err := getAdminJPKI(caName)
+	
+	adminID, _, err := jpkiGetAdminID(uReq.GroupName, caName)
 	if err != nil {
 		retErr = fmt.Errorf("authentication failure")
 		return
 	}
+
+	username, retErr := getJPKIUsernameByPubKey(adminID, pub)
+	if retErr != nil {
+		return // failure or unknown user
+	}
+	
+	jsonRsp := &jpkicli.GetJPKIUsernameReply{
+		Name: username,
+	}
+			
+	rsp, err = json.Marshal(jsonRsp)
+	if err != nil {
+		retErr = fmt.Errorf("failed to marhsal a username: " + err.Error())
+	}
+	return // success
+}
+
+func getJPKIUsernameByPubKey(adminID *immclient.UserID, pub []byte) (username string, retErr error) {
+	pubStr := base64.StdEncoding.EncodeToString(pub)
 
 	listIDs, err := adminID.GetAllIdentities("")
 	if err != nil {
@@ -393,45 +481,24 @@ func getJPKIUsername(caName string, req []byte) (rsp []byte, retErr error) {
 		return
 	}
 
-	var tmpPub []byte
 	for _, info := range listIDs {
-		tmpPub = nil
 		for _, attr := range info.Attributes {
-			if attr.Name == "JPKI.AuthPub" {
-				if uReq.AuthPub == nil {
-					continue
-				}
+			if attr.Name != AUTH_UserParam {
+				continue
+			}
+
+			if !strings.Contains(attr.Value, pubStr) {
+				continue
+			}
 				
-				tmpPub, _ = base64.StdEncoding.DecodeString(attr.Value)
-				break
-			}
-			if attr.Name == "JPKI.SignPub" {
-				if uReq.SignPub == nil {
-					continue
-				}
-
-				tmpPub, _ = base64.StdEncoding.DecodeString(attr.Value)
-				break
-			}
-		}
-
-		if bytes.Equal(pub, tmpPub) {
-			jsonRsp := &jpkicli.GetJPKIUsernameReply{
-				Name: info.ID,
-			}
-
-			rsp, err = json.Marshal(jsonRsp)
-			if err != nil {
-				retErr = fmt.Errorf("failed to marhsal a username: " + err.Error())
-				return
-			}
-			
-			return // success
+			// found
+			username = info.ID
+			return
 		}
 	}
 
 	retErr = fmt.Errorf("unknown user")
-	return // failure
+	return
 }
 
 func randName(num int) string {
@@ -644,7 +711,7 @@ var	addressOidStr = string([]byte{0x2a, 0x83, 0x08, 0x8c, 0x9b, 0x55, 0x08, 0x05
 var	altChInNameOidStr = string([]byte{0x2a, 0x83, 0x08, 0x8c, 0x9b, 0x55, 0x08, 0x05, 0x05, 0x02})// 1.2.392.200149.8.5.5.2
 var	altChInAddrOidStr = string([]byte{0x2a, 0x83, 0x08, 0x8c, 0x9b, 0x55, 0x08, 0x05, 0x05, 0x06})// 1.2.392.200149.8.5.5.6
 
-func getSignCertAttr(certAsn1 []byte) (attrs []immclient.Attribute, retErr error) {
+func getSignCertAttr(certAsn1 []byte) (privacyInfo jpkiPrivacyInfo, retErr error) {
 	cert, err := x509.ParseCertificate(certAsn1)
 	if err != nil {
 		retErr = fmt.Errorf("unexpected certificate")
@@ -662,12 +729,12 @@ func getSignCertAttr(certAsn1 []byte) (attrs []immclient.Attribute, retErr error
 		return
 	}
 
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.FullName", Value: string(vals[fullNameOidStr]), ECert: false})
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.Brithday", Value: string(vals[birthdayOidStr]), ECert: false})
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.Gender", Value: string(vals[genderOidStr]), ECert: false})
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.Address", Value: string(vals[addressOidStr]), ECert: false})
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.AltChInName", Value: string(vals[altChInNameOidStr]), ECert: false})
-	attrs = append(attrs, immclient.Attribute{Name: "JPKI.AltChInAddr", Value: string(vals[altChInAddrOidStr]), ECert: false})
+	privacyInfo.FullName = string(vals[fullNameOidStr])
+	privacyInfo.Birthday = string(vals[birthdayOidStr])
+	privacyInfo.Gender = string(vals[genderOidStr])
+	privacyInfo.Address = string(vals[addressOidStr])
+	privacyInfo.AltChInName = string(vals[altChInNameOidStr])
+	privacyInfo.AltChInAddr = string(vals[altChInAddrOidStr])
 	return // success
 }
 
@@ -764,3 +831,28 @@ func getOidValues(raw []byte, oids []string) (values map[string] []byte, retErr 
 
 	return	
 }
+
+func jpkiRemovePubKeyAttr(attrs *[]immclient.Attribute) (newAttrs []immclient.Attribute) {
+	for _, attr := range *attrs {
+		if attr.Name == AUTH_UserParam {
+			authUserParam := &jpkiAuthUserParam{}
+			err := json.Unmarshal([]byte(attr.Value), authUserParam)
+			if err != nil {
+				continue
+			}
+
+			authUserParam.AuthPub = ""
+			authUserParam.SignPub = ""
+
+			val, err := json.Marshal(authUserParam)
+			if err != nil {
+				continue
+			}
+			attr.Value = string(val)
+		}
+		
+		newAttrs = append(newAttrs, attr)
+	}
+	return
+}
+

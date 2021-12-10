@@ -30,6 +30,10 @@ import (
 
 const (
 	ERR_ENCRYPTED_KEY = "encrypted key"
+	
+	USER_PRIV_SUFFIX =  "_sk"
+	USER_CERT_SUFFIX = "-cert.pem"
+	HOST_PREFIX = "host "
 )
 
 func ConvToArray(src string) []byte {
@@ -47,8 +51,8 @@ func GetIDFromStorage(username string) (*immclient.UserID, error) {
 	gl := js.Global()
 	storage := gl.Get("localStorage")
 
-	privStorage := storage.Call("getItem", username + "_sk")
-	certStorage := storage.Call("getItem", username + "-cert.pem")
+	privStorage := storage.Call("getItem", username + USER_PRIV_SUFFIX)
+	certStorage := storage.Call("getItem", username + USER_CERT_SUFFIX)
 	if privStorage.IsNull() || certStorage.IsNull() {
 		return nil, errors.New("not found user")
 	}
@@ -57,6 +61,11 @@ func GetIDFromStorage(username string) (*immclient.UserID, error) {
 	cert := ConvToArray(certStorage.String())
 
 	return &immclient.UserID{Name: username, Priv: priv, Cert: cert}, nil
+}
+
+func SetCurrentUsername(username string) {
+	localStorage := js.Global().Get("localStorage")
+	localStorage.Call("setItem", "lastUser", username)
 }
 
 func GetCurrentUsername() (string, error) {
@@ -126,7 +135,7 @@ func EncryptKey(keyPass string) error {
 
 	localStorage := js.Global().Get("localStorage")
 	uint8Array := js.Global().Get("Uint8Array")
-	privStorage := userName + "_sk"
+	privStorage := userName + USER_PRIV_SUFFIX
 	privArray := uint8Array.New(len(encryptedKeyData))
 	js.CopyBytesToJS(privArray, encryptedKeyData)
 	localStorage.Call("setItem", privStorage, privArray)
@@ -168,4 +177,42 @@ func IsPasswordRequired(username string) bool {
 
 	privPem, _ := pem.Decode(id.Priv)
 	return x509.IsEncryptedPEMBlock(privPem)
+}
+
+func StoreKeyPair(prefix string, id *immclient.UserID) {
+	localStorage := js.Global().Get("localStorage")
+	uint8Array := js.Global().Get("Uint8Array")
+
+	certStorage := prefix + USER_CERT_SUFFIX
+	privStorage := prefix + USER_PRIV_SUFFIX
+	
+	privArray := uint8Array.New(len(id.Priv))
+	js.CopyBytesToJS(privArray, id.Priv)
+	localStorage.Call("setItem", privStorage, privArray)
+
+	certArray := uint8Array.New(len(id.Cert))
+	js.CopyBytesToJS(certArray, id.Cert)
+	localStorage.Call("setItem", certStorage, certArray)
+}
+
+func ListUsername() (list []string) {
+	list = []string{}
+	
+	storage := js.Global().Get("localStorage")
+	storageLen := storage.Length()
+	for i := 0; i < storageLen; i++ {
+		key := storage.Call("key", i).String()
+		username := strings.TrimSuffix(key, USER_CERT_SUFFIX)
+		
+		if key == username {
+			continue
+		}
+		if strings.HasPrefix(key, HOST_PREFIX) {
+			continue
+		}
+
+		list = append(list, username)
+	}
+
+	return
 }

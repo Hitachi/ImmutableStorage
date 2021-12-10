@@ -31,6 +31,15 @@ import (
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
+func PingLDAP(serverName string) error {
+	ldapSrv, err := ldap.Dial("tcp", serverName)
+	if err != nil {
+		return fmt.Errorf("could not connect to the LDAP server (%s): %s", serverName, err)
+	}
+	ldapSrv.Close()
+	return nil
+}
+
 func registerLDAPAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) ([]byte, error) {
 	authParam := &immop.AuthParamLDAP{}
 	err := proto.Unmarshal(req.AuthParam, authParam)
@@ -38,22 +47,13 @@ func registerLDAPAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immo
 		return nil, fmt.Errorf("invalid authentication parameter: %s", err)
 	}
 
-	var pingLDAP = func(serverName string) error {
-		ldapSrv, err := ldap.Dial("tcp", serverName)
-		if err != nil {
-			return fmt.Errorf("could not connect to the LDAP server (%s): %s", serverName, err)
-		}
-		ldapSrv.Close()
-		return nil
-	}
-
-	err = pingLDAP(authParam.BindServer)
+	err = PingLDAP(authParam.BindServer)
 	if err != nil {
 		return nil, err
 	}
 
 	if authParam.QueryServer != "" {
-		err = pingLDAP(authParam.QueryServer)
+		err = PingLDAP(authParam.QueryServer)
 		if err != nil {
 			return nil, err
 		}
@@ -101,20 +101,45 @@ func connLDAP(serverName string) (*ldap.Conn, error) {
 	return conn, nil // success	
 }
 
-func authenticateLDAPUser(adminAttr *immclient.IdentityResponse, username, secret string) (retErr error) {
-	ldapAttr := map[string] string{
+func getLDAPAttr(adminID *immclient.UserID, authType, authUsername string) (ldapAttr map[string] string, username string, retErr error) {
+	caCli := adminID.Client.(*cacli.CAClient)
+	adminAttr, err := adminID.GetIdentity(caCli.UrlBase, adminID.Name)
+	if err != nil {
+		retErr = fmt.Errorf("authentication error")
+		return
+	}
+
+	if authType == ballotAuthTypeLDAP {
+		ldapAttr, retErr =  ballotGetLDAPAttr(&adminAttr.Attributes)
+		username = strings.TrimSuffix(authUsername, voterRegNameSuffix)
+		return
+	}
+
+	ldapAttr = map[string] string{
 		"LDAP.BindServer": "",
 		"LDAP.BindDN": "",
 		"LDAP.QueryServer": "",
 		"LDAP.BaseDN": "",
 		"LDAP.Query": "",
 	}
+	
 	for _, attr := range adminAttr.Attributes {
 		_, ok := ldapAttr[attr.Name]
 		if ok {
 			ldapAttr[attr.Name] = attr.Value
 		}
 	}
+	username = authUsername
+	return
+}
+
+func authenticateLDAPUser(adminID *immclient.UserID, authType, authUsername, secret string) (retErr error) {
+	ldapAttr, username, err := getLDAPAttr(adminID, authType, authUsername)
+	if err != nil {
+		retErr = err
+		return
+	}
+	
 	for ldapAttr["LDAP.BindServer"] == "" || ldapAttr["LDAP.BindDN"] == "" {
 		// not LDAP user
 		retErr = fmt.Errorf("invalid user")
@@ -218,7 +243,7 @@ func authenticateLDAPUser(adminAttr *immclient.IdentityResponse, username, secre
 	}
 	defer bindSrv.Close()
 
-	err := bindSrv.Bind(bindDNStr, secret)
+	err = bindSrv.Bind(bindDNStr, secret)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
 		return

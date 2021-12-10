@@ -43,6 +43,7 @@ type ImmOperationClient interface {
 	EnrollUser(ctx context.Context, in *EnrollUserRequest, opts ...grpc.CallOption) (*EnrollUserReply, error)
 	CommCA(ctx context.Context, in *CommCARequest, opts ...grpc.CallOption) (*CommCAReply, error)
 	JPKIFunc(ctx context.Context, in *JPKIFuncRequest, opts ...grpc.CallOption) (*JPKIFuncReply, error)
+	BallotFunc(ctx context.Context, in *BallotFuncRequest, opts ...grpc.CallOption) (*BallotFuncReply, error)
 }
 
 type immOperationClient struct {
@@ -287,6 +288,15 @@ func (c *immOperationClient) JPKIFunc(ctx context.Context, in *JPKIFuncRequest, 
 	return out, nil
 }
 
+func (c *immOperationClient) BallotFunc(ctx context.Context, in *BallotFuncRequest, opts ...grpc.CallOption) (*BallotFuncReply, error) {
+	out := new(BallotFuncReply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/BallotFunc", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImmOperationServer is the server API for ImmOperation service.
 // All implementations should embed UnimplementedImmOperationServer
 // for forward compatibility
@@ -317,6 +327,7 @@ type ImmOperationServer interface {
 	EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error)
 	CommCA(context.Context, *CommCARequest) (*CommCAReply, error)
 	JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error)
+	BallotFunc(context.Context, *BallotFuncRequest) (*BallotFuncReply, error)
 }
 
 // UnimplementedImmOperationServer should be embedded to have forward compatible implementations.
@@ -400,6 +411,9 @@ func (*UnimplementedImmOperationServer) CommCA(context.Context, *CommCARequest) 
 }
 func (*UnimplementedImmOperationServer) JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method JPKIFunc not implemented")
+}
+func (*UnimplementedImmOperationServer) BallotFunc(context.Context, *BallotFuncRequest) (*BallotFuncReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BallotFunc not implemented")
 }
 
 func RegisterImmOperationServer(s *grpc.Server, srv ImmOperationServer) {
@@ -874,6 +888,24 @@ func _ImmOperation_JPKIFunc_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImmOperation_BallotFunc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BallotFuncRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).BallotFunc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/BallotFunc",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).BallotFunc(ctx, req.(*BallotFuncRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "immop.ImmOperation",
 	HandlerType: (*ImmOperationServer)(nil),
@@ -981,6 +1013,10 @@ var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "JPKIFunc",
 			Handler:    _ImmOperation_JPKIFunc_Handler,
+		},
+		{
+			MethodName: "BallotFunc",
+			Handler:    _ImmOperation_BallotFunc_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
