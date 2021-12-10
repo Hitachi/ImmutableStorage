@@ -23,7 +23,7 @@ import (
 	"sync/atomic"
 	"github.com/golang/protobuf/proto"
 	"strings"
-	"fmt"
+	//"fmt"
 )
 
 const (
@@ -125,13 +125,13 @@ func getTxID(this js.Value, in []js.Value) interface{} {
 func getTxIDComp(this js.Value, in []js.Value) interface{} {
 	gl := js.Global()
 
-	print("log: getTxIdOnLedgerComp")
+	//	print("log: getTxIdOnLedgerComp")
 	if atomic.CompareAndSwapInt32(&getTxIdLock, 0, 1) == false {
 		return gl.Get("Promise").Call("reject")
 	}
 	defer func() { getTxIdLock = 0 }()
 	
-	fmt.Printf("log: getTxIdOnLedgerComp: length=%d\n", len(txIdArray))
+	//fmt.Printf("log: getTxIdOnLedgerComp: length=%d\n", len(txIdArray))
 
 	txIdList := gl.Get("Array").New()
 	for i, txId := range txIdArray {
