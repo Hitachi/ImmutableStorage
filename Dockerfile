@@ -10,6 +10,8 @@ COPY script/imms.sh ./
 RUN mkdir -p /var/lib/ImmutableST/tmpl/httpd/html
 WORKDIR /var/lib/ImmutableST/tmpl/httpd/html
 COPY ./web/immDS.wasm.br ./web/immDS.wasm.gz ./web/ImmutableDS.css ./web/index.html ./web/wasm_exec.js ./
+COPY ./web/immex/immex.wasm.br ./web/immex/immex.wasm.gz ./
+COPY ./app/secretBallot/secretBallot.html ./app/secretBallot/secretballot.wasm.br ./app/secretBallot/secretballot.wasm.gz ./
 
 RUN mkdir -p /var/lib/ImmutableST/tmpl/immsrv/immplugin
 WORKDIR /var/lib/ImmutableST/tmpl/immsrv
