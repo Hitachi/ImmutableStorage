@@ -8,6 +8,7 @@ require (
 	casvc v0.0.0-00010101000000-000000000000
 	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/containerd/containerd v1.5.8 // indirect
+	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/opencontainers/runc v1.0.3 // indirect
 	github.com/opencontainers/selinux v1.8.4 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
