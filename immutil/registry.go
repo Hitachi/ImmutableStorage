@@ -227,8 +227,13 @@ func (cli *RegClient) GetDigest(name, tag string) (digest string, retErr error){
 		retErr = fmt.Errorf("failed to create a request for getting deigest: " + err.Error())
 		return
 	}
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
 
+	manifestFormats := []string{
+		"application/vnd.docker.distribution.manifest.v2+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+	}
+
+	req.Header.Set("Accept", manifestFormats[0]+","+manifestFormats[1])
 	rsp, _, err := cli.sendReq(req)
 	if err != nil {
 		retErr = fmt.Errorf("failed to requst: " + err.Error())
@@ -238,8 +243,14 @@ func (cli *RegClient) GetDigest(name, tag string) (digest string, retErr error){
 		retErr = fmt.Errorf("The specified image does not exist in the registry: receiving a status=%s", rsp.Status)
 		return
 	}
+	
+	contentType := rsp.Header.Get("Content-Type")
+	if contentType == manifestFormats[0] ||  contentType == manifestFormats[1] {
+		digest = rsp.Header.Get("Docker-Content-Digest")
+		return // success
+	}
 
-	digest = rsp.Header.Get("Docker-Content-Digest")
+	retErr = fmt.Errorf("unsupported manifest format")
 	return
 }
 
