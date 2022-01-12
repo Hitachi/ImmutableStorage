@@ -1049,7 +1049,8 @@ func setPollTimes(this js.Value, in []js.Value) interface{} {
             <label>-</label><input type="text" id="openingTimeMonth" value="`+strconv.Itoa(int(now.Month()))+`"></input>
             <label>-</label><input type="text" id="openingTimeDay" value="`+strconv.Itoa(now.Day())+`"></input>
             <label> Time</label><input type="text" id="openingTimeHour" value="0"></input>
-            <label>:</label><input type="text" id="openingTimeMins" value="0"></input>
+            <label>:</label><input type="text" id="openingTimeMin" value="0"></input>
+            <label>:</label><input type="text" id="openingTimeSec" value="0"></input>
           </div>
         </div>
 
@@ -1060,7 +1061,8 @@ func setPollTimes(this js.Value, in []js.Value) interface{} {
              <label>-</label><input type="text" id="closingTimeMonth" value="`+strconv.Itoa(int(now.Month()))+`"></input>
              <label>-</label><input type="text" id="closingTimeDay" value="`+strconv.Itoa(now.Day())+`"></input>
              <label> Time</label><input type="text" id="closingTimeHour" value="0"></input>
-             <label>:</label><input type="text" id="closingTimeMins" value="0"></input>
+             <label>:</label><input type="text" id="closingTimeMin" value="0"></input>
+             <label>:</label><input type="text" id="closingTimeSec" value="0"></input>
           </div>
         </div>
 
@@ -1102,20 +1104,23 @@ func convRFC3339Time(namePrefix string, offsetStr string) (t string, retErr erro
 	gl := js.Global()
 	doc := gl.Get("document")
 	
-	validRange := map[string] struct{
+	validRange := []struct{
+		itemName string
 		min int
 		max int
 		tail string
 	}{
-		"Year": {2021, 2100, "-"},
-		"Month": {1, 12, "-"},
-		"Day": {1, 31, "T"},
-		"Hour": {0, 23, ":"},
-		"Mins": {0, 59, ""},
+		{"Year", 2021, 2100, "-"},
+		{"Month", 1, 12, "-"},
+		{"Day", 1, 31, "T"},
+		{"Hour", 0, 23, ":"},
+		{"Min", 0, 59, ":"},
+		{"Sec", 0, 59, ""},
 	}
 	
-	for tType, vRange := range validRange {
-		item :=  doc.Call("getElementById", namePrefix+tType).Get("value").String()
+	for _, vRange := range validRange {
+		itemName := vRange.itemName
+		item :=  doc.Call("getElementById", namePrefix+itemName).Get("value").String()
 		i, err := strconv.Atoi(item)
 		if err != nil {
 			retErr = errors.New("invalid character")
@@ -1491,7 +1496,7 @@ func makeResultVoteContent(id *immclient.UserID) error {
 	html := `
       <div class="cert-area">
         <div class="row">
-          <label>The results of vote</label>
+          <label>Election result</label>
         </div>`
 	for _, paper := range *papers {
 		html += `
