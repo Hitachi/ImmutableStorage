@@ -3,9 +3,12 @@ kind: Pod
 metadata:
   name: imms
   namespace: default
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/imms: unconfined
+
 spec:
   containers:
-  - image: localhost:32000/imms:1.2.0
+  - image: localhost:32000/imms:1.2.1
     env:
     - name: IMMS_ORG
       value: example.com
@@ -27,21 +30,22 @@ spec:
     #  - "365d"
     imagePullPolicy: IfNotPresent
     name: imms
+    securityContext:
+      capabilities:
+        add: ["SYS_ADMIN"] # To pull docker images, a program needs the overlay2 mount.
     volumeMounts:
     - mountPath: /var/lib/ImmutableST/org
       name: work-vol
-    - mountPath: /run/containerd.sock
-      name: containerd-sock
+    - mountPath: /work
+      name: temp-image-store
   restartPolicy: Never
   volumes:
   - name: work-vol
     hostPath:
       path: /var/lib/ImmutableST/org
       type: DirectoryOrCreate
-  - name: containerd-sock
-    hostPath:
-      path: /var/snap/microk8s/common/run/containerd.sock
-      type: Socket
+  - name: temp-image-store
+    emptyDir: {}
   dnsConfig:
     options:
     - name: ndots
