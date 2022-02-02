@@ -1075,6 +1075,7 @@ func (id *UserID) InstantiateChainCode(url, chName string) error {
 
 		// retry
 		taskID = rsp.TaskID
+		propReq.TaskID = taskID
 	}
 
 	signature, err = id.signData(rsp.Proposal)
