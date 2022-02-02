@@ -37,15 +37,18 @@ const (
 	OrdererImg = "hyperledger/fabric-orderer:1.4.11"
 	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.22"
 	PeerImg = "hyperledger/fabric-peer:1.4.11"
-	DockerImg = "library/docker:19.03.15-dind"
+	//DockerImg = "library/docker:19.03.15-dind"
+	DockerImg = "quay.io/podman/stable:v3.4.4"
 	
 	ImmHttpdImg = "library/httpd:2.4.46"
 
 	ImmSrvImg = "library/ubuntu:20.04"
 	EnvoyImg = "envoyproxy/envoy:v1.14.6"
 
-	ChainCcenvImg = "hyperledger/fabric-ccenv:1.4.11"
-	ChainBaseOsImg = "hyperledger/fabric-baseos:amd64-0.4.22"
+	ContBuildBaseImg = "library/golang:1.17.6"
+	ContBuildImg = "golang:contbuilder"
+	ContRuntimeImg = "ubuntu:runtime"
+	
 
 	configYaml = "config.yaml"
 
@@ -67,7 +70,6 @@ type ImmConfig struct {
 	NetName string `yaml:"DockerNetname"`
 	ExternalIPs []string `yaml:"ExternalIPs"`
 	Registry string `yaml:"Registry"`
-	RegistryAuth string `yaml:"RegsitryAuth"`
 }
 
 func ReadConfigWithDefaultFile(org string) (config *ImmConfig, retErr error) {

@@ -93,9 +93,8 @@ const (
 	hostKeyDir = "key"
 	hostConfDir = "conf"
 	hostDataDir = "/data"
-	contDockerCertDir = "/certs"
-	hostDockerVarDir = "/docker-var"
-	contDockerVarDir = "/var/lib/docker"
+	contDockerVarDir = "/home/podman/.local/share/containers"
+	contDockerConfDir = "/home/podman/.config/containers"
 	
 	fabDefaultConfDir = "/etc/hyperledger/fabric"
 	certsTarDir = "/var/lib/certs"
@@ -111,6 +110,7 @@ const (
 
 	chaincodePath = "/var/lib/immsrv/hlRsyslog"
 	defaultCCName = "hlRsyslog"
+	runtimeDockerfile = "/var/lib/immsrv/runtimeImg.tar.gz"
 
 	clearMspCmd = "rm -rf "+fabDefaultConfDir+"/msp"
 	cpKeyCmd = "tar xf "+certsTarDir+"/keys.tar -C "+fabDefaultConfDir
@@ -856,10 +856,10 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 		},
 		Data: map[string]string{
 			"CORE_VM_ENDPOINT": "tcp://localhost:2376",
-			"CORE_VM_DOCKER_TLS_ENABLED": "true",
-			"CORE_VM_DOCKER_TLS_CERT_FILE": "/certs/client/cert.pem",
-			"CORE_VM_DOCKER_TLS_KEY_FILE": "/certs/client/key.pem",
-			"CORE_VM_DOCKER_TLS_CA_FILE": "/certs/client/ca.pem",
+			//"CORE_VM_DOCKER_TLS_ENABLED": "true",
+			//"CORE_VM_DOCKER_TLS_CERT_FILE": "/certs/client/cert.pem",
+			//"CORE_VM_DOCKER_TLS_KEY_FILE": "/certs/client/key.pem",
+			//"CORE_VM_DOCKER_TLS_CA_FILE": "/certs/client/ca.pem",
 			"CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE": "bridge", //netName
 			//"CORE_LOGGING_LEVEL": "INFO",
 			//"CORE_LOGGING_LEVEL": "DEBUG",
@@ -867,6 +867,8 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 			"CORE_LOGGING_PEER": "debug",
 			"CORE_CHAINCODE_LOGGING_LEVEL": "DEBUG",
 			"CORE_CHAINCODE_LOGGING_SHIM": "DEBUG",
+			"CORE_CHAINCODE_BUILDER": immutil.ContBuildImg,
+			"CORE_CHAINCODE_GOLANG_RUNTIME": immutil.ContRuntimeImg,
 			"CORE_PEER_CHAINCODELISTENADDRESS": "0.0.0.0:7052",
 			"CORE_PEER_TLS_ENABLED": "true",
 			"CORE_PEER_GOSSIP_USELEADERELECTION": "true",
@@ -918,9 +920,15 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 		return fmt.Errorf("failed to create a ConfigMap for couchDB environment variable: " + err.Error())
 	}
 
-	err = createDinDKeys(org)
+	localReg, _ := immutil.GetLocalRegistryAddr()
+	err = createPodmanConfig("podman."+org, localReg)
 	if err != nil {
-		return fmt.Errorf("failed to create keys for DinD: " + err.Error())
+		return err
+	}
+
+	err = createPluginConfig("immplugin."+org)
+	if err != nil {
+		return err
 	}
 
 	return nil // success
@@ -982,18 +990,19 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		return
 	}
 
-	dindCmd := []string{"dockerd-entrypoint.sh"}
-	registryAddr, err := immutil.GetLocalRegistryAddr()
-	if err == nil {
-		dindCmd = append(dindCmd, "--insecure-registry", registryAddr)
-	}
+	//podmanCmd := []string{"podman", "system", "service", "--time=0", "--log-level=debug", "tcp:localhost:2376"}
+	podmanCmd := []string{"sh", "-c", `PODPID=0; while true; do STATUS=$(podman container ls --filter name=.*hlRsyslog* --filter status=running --format '{{.Status}}'); if [ $PODPID = 0 ] && [ -z "$STATUS" ]; then podman system service -t=0 --log-level=debug tcp:localhost:2376& PODPID=$!; fi; if [ $PODPID != 0 ] && [ -n "$STATUS" ]; then kill -KILL $PODPID; PODPID=0; fi; sleep 60; done`} // workaround script for podman busy loop
 	
 	repn := int32(1)
 	privilegedF := bool(true)
+	podmanUID := int64(1000)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
+			Annotations: map[string] string{
+				corev1.AppArmorBetaContainerAnnotationKeyPrefix+"podman-plugin": corev1.AppArmorBetaProfileNameUnconfined,
+			},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas:&repn,
@@ -1023,28 +1032,38 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							},
 						},
 						{
-							Name: "dind-keys-ca",
+							Name: "podman-config-vol",
 							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: immutil.DinDHostname + "." + org +"-ca",
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "podman." + org,
+									},
+								},	
+							},
+						},
+						{
+							Name: "podman-vol1",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{
 								},
 							},
 						},
 						{
-							Name: "dind-keys-server",
+							Name: "podman-vol2",
 							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: immutil.DinDHostname + "." + org +"-server",
+								EmptyDir: &corev1.EmptyDirVolumeSource{
 								},
 							},
 						},
 						{
-							Name: "dind-keys-client",
+							Name: "immplugin-config-vol",
 							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: immutil.DinDHostname + "." + org +"-client",
-								},
-							},
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "immplugin." + org,
+									},
+								},	
+							},							
 						},
 					},
 					Hostname: shortName,
@@ -1056,11 +1075,22 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					},
 					Containers: []corev1.Container{
 						{
+							Name: couchdbHostPrefix+shortName,
+							Image: pullRegAddr + immutil.CouchDBImg,
+							EnvFrom: couchDBEnv,
+							Ports: []corev1.ContainerPort{
+								{
+									Name: "db",
+									Protocol: corev1.ProtocolTCP,
+									ContainerPort: 5984,
+								},
+							},
+						},
+						{
 							Name: shortName,
 							Image: pullRegAddr + immutil.PeerImg,
 							VolumeMounts: []corev1.VolumeMount{
 								{ Name: "vol1", MountPath: peerDataDir, SubPath: podName+hostDataDir, },
-								{ Name: "dind-keys-client", MountPath: contDockerCertDir+"/client", },
 								{ Name: "secret-vol1", MountPath: certsTarDir, },
 							},
 							EnvFrom: peerEnv,
@@ -1081,39 +1111,29 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							},
 						},
 						{
-							Name: "dind-chaincode",
+							Name: "podman-plugin",
 							Image: pullRegAddr + immutil.DockerImg,
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "dind-keys-ca", MountPath: contDockerCertDir+"/ca", },
-								{ Name: "dind-keys-server", MountPath: contDockerCertDir+"/server", },
-								{ Name: "dind-keys-client", MountPath: contDockerCertDir+"/client", },
-								{ Name: "vol1", MountPath: contDockerVarDir, SubPath: podName+hostDockerVarDir, },
+								{ Name: "podman-vol1", MountPath: contDockerVarDir, },
+								{ Name: "podman-vol2", MountPath: "/home/podman/.config/cni", },
+								{ Name: "podman-config-vol",
+									MountPath: contDockerConfDir+"/"+"storage.conf", SubPath: "storage.conf", },
+								{ Name: "podman-config-vol",
+									MountPath: contDockerConfDir+"/"+"registries.conf", SubPath: "registries.conf", },
+								{ Name: "podman-config-vol",
+									MountPath: contDockerConfDir+"/"+"containers.conf", SubPath: "containers.conf", },
+								{ Name: "podman-config-vol", MountPath: "/etc/subuid", SubPath: "subuid", },
+								{ Name: "podman-config-vol", MountPath: "/etc/subgid", SubPath: "subgid", },
 							},
-							//Env: []corev1.EnvVar{
-							//	{ Name: "DOCKER_TLS_SAN", Value: "DNS:dind."+org, },
-							//},
-							Command: dindCmd,
+							Command: podmanCmd,
 							SecurityContext: &corev1.SecurityContext{
+								//Capabilities: &corev1.Capabilities{
+								//	Add: []Capability{
+								//		"SYS_ADMIN",
+								//	},
+								//},
 								Privileged: &privilegedF,
-							},
-							Ports: []corev1.ContainerPort{
-								{
-									Name: "docker",
-									Protocol: corev1.ProtocolTCP,
-									ContainerPort: 2376,
-								},
-							},
-							StartupProbe: &corev1.Probe{
-								Handler: corev1.Handler{
-									TCPSocket: &corev1.TCPSocketAction{
-										Port: intstr.IntOrString{
-											Type: intstr.Int,
-											IntVal: 2376,
-										},
-									},
-								},
-								InitialDelaySeconds: int32(2),
-								PeriodSeconds: int32(4),
+								RunAsUser: &podmanUID,
 							},
 						},
 						{
@@ -1125,29 +1145,26 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 									MountPath: "/var/lib/immplugin",
 									SubPath: immutil.ImmsrvHostname+"."+org+immutil.ImmsrvExpDir+"/immplugin",
 								},
+								{
+									Name: "immplugin-config-vol",
+									MountPath: "/work",
+								},
 							},
 							Env: []corev1.EnvVar{
 								{ Name: "IMMS_ORG", Value: org, },
 							},
 							Command: []string{"/var/lib/immplugin/immpluginsrv"},
-							Ports: []corev1.ContainerPort{
-								{
-									Name: "plugin",
-									Protocol: corev1.ProtocolTCP,
-									ContainerPort: 50052,
+							StartupProbe: &corev1.Probe{
+								Handler:  corev1.Handler{
+									TCPSocket: &corev1.TCPSocketAction{
+										Port: intstr.IntOrString{
+											Type: intstr.Int,
+											IntVal: 50052,
+										},
+									},
 								},
-							},
-						},
-						{
-							Name: couchdbHostPrefix+shortName,
-							Image: pullRegAddr + immutil.CouchDBImg,
-							EnvFrom: couchDBEnv,
-							Ports: []corev1.ContainerPort{
-								{
-									Name: "db",
-									Protocol: corev1.ProtocolTCP,
-									ContainerPort: 5984,
-								},
+								InitialDelaySeconds: int32(10),
+								PeriodSeconds: int32(15),
 							},
 						},
 					},
@@ -2142,11 +2159,6 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 			return
 		}
 		
-		signer, err = s.waitDindReady(signer, storageHost)
-		if err != nil {
-			return
-		}
-		
 		conn, err := connectPeerWithName(peerName)
 		if err != nil {
 			signer.err <- fmt.Errorf("could not connect to peer: %s", err)
@@ -2248,61 +2260,6 @@ func (s *server) waitPeerReady(signer *signerState, peerName string) (retSigner 
 	}
 
 	return signer, signature, nil // success
-}
-
-func (s *server) waitDindReady(signer *signerState, storageHost string) (retSigner *signerState, retErr error) {
-	var dindErr chan error
-	dindErr = make(chan error, 1)
-	
-	go func() {
-		tmpStrs := strings.SplitN(storageHost, ".", 2)
-		shortName := tmpStrs[0]
-		dindOrg := tmpStrs[1]
-		err := initDinD(shortName, dindOrg)
-		dindErr <- err
-	}()
-	defer close(dindErr)
-
-	for retryC := 1; ; retryC++ {
-		select {
-		case retErr =<- dindErr:
-			if retErr != nil {
-				signer.err <- retErr
-			}
-			retSigner = signer
-			return // done
-		case <- time.After(10 * time.Second):
-			prevSigner := signer
-			signer, retErr = s.setSignatureCh("RetryWaitDinDState_"+strconv.Itoa(retryC), signer.cert, signer.grpHost)
-			if retErr != nil {
-				prevSigner.err <- retErr
-				<- dindErr
-				return // give up
-			}
-			
-			retryRsp := &immop.Reply{
-				NotReadyF: true,
-				TaskID: signer.taskID,
-			}
-			prevSigner.rsp, retErr = proto.Marshal(retryRsp)
-			if retErr != nil {
-				signer.signatureChDone()
-				retErr = fmt.Errorf("failed to marshal a reply with retry: %s", retErr)
-				prevSigner.err <- retErr
-				<- dindErr
-				return // give up
-			}
-			
-			prevSigner.err <- nil
-			_, retErr = signer.waitSignatureCh()
-			if retErr != nil {
-				<- dindErr
-				return // give up
-			}
-		}
-	}
-
-	return // dummy
 }
 
 func getConfigFromBlock(blockRaw []byte) (chConf *channelConf, retErr error) {
@@ -2488,8 +2445,8 @@ func (s *server) sendSignedPropInternal(funcName string, req *immop.PropReq) (*s
 	signer.state = 0
 
 	delete(*signer.parent, signer.taskID)
-
-	fmt.Printf("log: signedProp:\n%s\n", hex.Dump(req.Msg))
+	
+	//	fmt.Printf("log: signedProp:\n%s\n", hex.Dump(req.Msg))
 	return signer, err
 }
 

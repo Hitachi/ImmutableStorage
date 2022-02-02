@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"context"
+	"os"
 
 	"google.golang.org/grpc"
 		
@@ -33,10 +34,10 @@ import (
 type PluginFunc struct {
 }
 
-const (
-	//pluginServer = "localhost:50052"
-	pluginServer = "172.17.0.1:50052" // docker0 network
-)
+//const (
+//	pluginServer = "localhost:50052"
+//	//pluginServer = "172.17.0.1:50052" // docker0 network
+//)
 
 
 func (s *PluginFunc) Init(APIstub shim.ChaincodeStubInterface) peer.Response {
@@ -49,7 +50,7 @@ func (s *PluginFunc) Invoke(APIstub shim.ChaincodeStubInterface) peer.Response {
 		return shim.Error(err.Error())
 	}
 	
-	conn, err := grpc.Dial(pluginServer, grpc.WithInsecure())
+	conn, err := grpc.Dial(os.Getenv("HOSTNAME")+":50052", grpc.WithInsecure())
 	if err != nil {
 		return shim.Error("failed to connect to the plugin: " + err.Error())
 	}

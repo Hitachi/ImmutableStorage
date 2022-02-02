@@ -168,14 +168,20 @@ func (s *server) validateUser(cert *x509.Certificate, funcName string) error {
 
 
 func main() {
+	immpluginsrv := &server{
+		org: os.Getenv("IMMS_ORG"),
+	}
+	
+	err := initPodInPod(immpluginsrv.org)
+	if err != nil {
+		log.Fatalf("%s\n", err)
+	}
+	
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("failed to listen: %s\n", err)
 	}
 
-	immpluginsrv := &server{
-		org: os.Getenv("IMMS_ORG"),
-	}
 	
 	s := grpc.NewServer()
 	immplugin.RegisterImmPluginServer(s, immpluginsrv)
