@@ -1165,6 +1165,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								},
 								InitialDelaySeconds: int32(10),
 								PeriodSeconds: int32(15),
+								FailureThreshold: int32(20),
 							},
 						},
 					},
