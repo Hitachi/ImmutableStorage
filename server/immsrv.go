@@ -991,7 +991,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	}
 
 	//podmanCmd := []string{"podman", "system", "service", "--time=0", "--log-level=debug", "tcp:localhost:2376"}
-	podmanCmd := []string{"sh", "-c", `PODPID=0; while true; do STATUS=$(podman container ls --filter name=.*hlRsyslog* --filter status=running --format '{{.Status}}'); if [ $PODPID = 0 ] && [ -z "$STATUS" ]; then podman system service -t=0 --log-level=debug tcp:localhost:2376& PODPID=$!; fi; if [ $PODPID != 0 ] && [ -n "$STATUS" ]; then kill -KILL $PODPID; PODPID=0; fi; sleep 60; done`} // workaround script for podman busy loop
+	podmanCmd := []string{"sh", "-c", `PODPID=0; while true; do STATUS=$(podman container ls --filter name=.*hlRsyslog* --filter status=running --format '{{.Status}}'); if [ $PODPID = 0 ] && [ -z "$STATUS" ]; then podman system service -t=0 --log-level=debug tcp:localhost:2376& PODPID=$!; fi; if [ $PODPID != 0 ] && [ -n "$STATUS" ]; then kill -KILL $PODPID; PODPID=0; fi; if [ $PODPID != 0 ] && [ -z "$STATUS" ] && [ ! -f /proc/$PODPID/status ]; then PODPID=0; fi; sleep 60; done`} // workaround script for podman busy loop
 	
 	repn := int32(1)
 	privilegedF := bool(true)
