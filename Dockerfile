@@ -17,6 +17,7 @@ RUN mkdir -p /var/lib/ImmutableST/tmpl/immsrv/immplugin
 WORKDIR /var/lib/ImmutableST/tmpl/immsrv
 COPY ./server/immsrv ./
 COPY ./chaincode/hlRsyslog.tar.gz ./hlRsyslog
+COPY ./chaincode/runtimeImg/runtimeImg.tar.gz ./
 COPY ./server/immpluginsrv/immpluginsrv ./immplugin/
 
 RUN mkdir -p /var/lib/ImmutableST/org

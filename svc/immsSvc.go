@@ -23,10 +23,16 @@ import (
 	"casvc"
 	"httpsvc"
 	"immsvc"
+
+	"github.com/docker/docker/pkg/reexec"
 	"preloadimg"
 )
 
 func main() {
+	if reexec.Init() { // execute docker-untar command
+		// never reach here
+	}
+	
 	if len(os.Args) < 2 {
 		fmt.Printf("Usage: immsSvc command [args...]\n")
 		os.Exit(100)

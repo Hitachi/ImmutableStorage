@@ -17,14 +17,25 @@ limitations under the License.
 package preloadimg
 
 import (
-	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/namespaces"
+	"github.com/docker/docker/daemon/images"
+	"github.com/docker/docker/daemon/events"
+	"github.com/docker/docker/image"
+	"github.com/docker/docker/registry"
+	"github.com/docker/docker/api/types"
+	//"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/pkg/idtools"
+	//"github.com/docker/docker/pkg/reexec"
+	"github.com/docker/docker/layer"
+	"github.com/docker/docker/plugin"
+	"github.com/docker/docker/reference"
+	distmeta "github.com/docker/docker/distribution/metadata"
+	_ "github.com/docker/docker/daemon/graphdriver/overlay2"
 	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/remotes/docker"	
-	//	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"net/http"
-	"time"
+	"github.com/containerd/containerd/metadata"
+	"github.com/containerd/containerd/content/local"
+	
+	"go.etcd.io/bbolt"
+	
 	"fmt"
 	"os"
 	"context"
@@ -42,74 +53,33 @@ func Main(args []string) {
 		immutil.OrdererImg: { false, DOCKER_IO_REPO },
 		immutil.CouchDBImg: { false, DOCKER_IO_REPO },
 		immutil.PeerImg: { false, DOCKER_IO_REPO },
-		immutil.DockerImg: { false, DOCKER_IO_REPO },
+		immutil.DockerImg: { false, ""},
 		immutil.ImmHttpdImg: { false, DOCKER_IO_REPO },
 		immutil.ImmSrvImg: { false, DOCKER_IO_REPO },
 		immutil.EnvoyImg: { false, DOCKER_IO_REPO },
-		immutil.ChainCcenvImg: { false, DOCKER_IO_REPO },
-		immutil.ChainBaseOsImg: { false, DOCKER_IO_REPO },
+		immutil.ContBuildBaseImg: { false, DOCKER_IO_REPO },
 	}
 	
 	regAddr := ""
-	cntUnixSock := "/var/snap/microk8s/common/run/containerd.sock"
-	
-	if immutil.IsInKube() {
-		cntUnixSock = "/run/containerd.sock"
-	}
+	authCfgLocal := &types.AuthConfig{}
+	authCfgDockerIO := &types.AuthConfig{}
 
-
-	var pushHosts docker.RegistryHosts
 	config, _, err := immutil.ReadOrgConfig("")
 	if err == nil && config.Registry != "" {
 		regAddr = config.Registry
-
-		privUsername, privSecret := immutil.ParseCredential(config.RegistryAuth)
-		if privSecret != "" {
-			pushHosts = docker.ConfigureDefaultRegistries(
-				docker.WithAuthorizer(
-					docker.NewDockerAuthorizer(
-						docker.WithAuthCreds(func(string) (string, string, error) {
-							return privUsername, privSecret, nil
-						}))))
-		}
-		
+		regAuth := os.Getenv("IMMS_REGISTRY_CRED")
+		authCfgLocal.Username, authCfgLocal.Password = immutil.ParseCredential(regAuth)
 	}else{
 		regAddr, err = immutil.GetLocalRegistryAddr()
 		if err != nil {
 			fmt.Printf("failed to get local registry address: %s\n", err)
 			os.Exit(1)
 		}
-
-		pushHosts =  docker.ConfigureDefaultRegistries(
-			docker.WithPlainHTTP(func(string) (bool, error) {
-				return true, nil
-			}))
 	}
-	
-	pushResolver := containerd.WithResolver(
-		docker.NewResolver(docker.ResolverOptions{
-			Client: http.DefaultClient,
-			Hosts: pushHosts,
-		}))
 
+	authCfgDockerIO.Username, authCfgDockerIO.Password = immutil.ParseCredential(os.Getenv("IMMS_DOCKER_IO_CRED"))
 
-	var dockerIoHosts docker.RegistryHosts
-	dUsername, dSecret := immutil.ParseCredential(os.Getenv("IMMS_DOCKER_IO_CRED"))
-	if dSecret != "" {
-		dockerIoHosts = docker.ConfigureDefaultRegistries(
-			docker.WithAuthorizer(
-				docker.NewDockerAuthorizer(
-					docker.WithAuthCreds(func(string) (string, string, error) {
-						return dUsername, dSecret, nil
-					}))))
-	}
-	dockerIoResolver := containerd.WithResolver(
-		docker.NewResolver(docker.ResolverOptions{
-			Client: http.DefaultClient,
-			Hosts: dockerIoHosts,
-		}))
-
-
+	// list images in a local registry
 	regCli, err := immutil.NewRegClient("http://" + regAddr)
 	if err != nil {
 		fmt.Printf("could not connect to registry service: %s\n", err)
@@ -138,102 +108,151 @@ func Main(args []string) {
 		}
 	}
 
-	cntCli, err := containerd.New(cntUnixSock)
+	imgSvc, boltdb, err := initImageService(regAddr)
 	if err != nil {
-		fmt.Printf("could not connect to containerd socket: %s\n", err)
-		os.Exit(4)
+		fmt.Printf("%s\n", err)
+		os.Exit(10)
 	}
-	defer cntCli.Close()
+	defer boltdb.Close()
 
-	imgStore := cntCli.ImageService()
-	ctx := namespaces.WithNamespace(context.Background(), "k8s.io")
-
+	plat, err := platforms.Parse("linux/amd64")
+	if err != nil {
+		fmt.Printf("failed to parse a platform: %s\n", err)
+		os.Exit(11)
+	}
+	metaHeaders := map[string][]string{}
+	
 	var pullPushImage = func(imgPrefix, imgName string) error {
-		var cntImg containerd.Image
-		img, err := imgStore.Get(ctx, imgPrefix+imgName)
-		if err != nil {
-			// This image does not exist in containerd
-			fmt.Printf("pull %s\n", imgName)
-			
-			cntImg, err = cntCli.Pull(ctx, imgPrefix+imgName, containerd.WithPlatform("linux/amd64"), containerd.WithPullUnpack, dockerIoResolver)
-			if err != nil {
-				return fmt.Errorf("failed to pull %s image: %s", imgName, err)
-			}
-			img = cntImg.Metadata()
-		} else {
-			cntImg = containerd.NewImage(cntCli, img)
+		pullAuthCfg := &types.AuthConfig{}
+		if imgPrefix == DOCKER_IO_REPO {		
+			pullAuthCfg = authCfgDockerIO
 		}
 
-		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
-		if err == nil {
-			findImgList[imgName].present = true
-			return nil // success
-		}
-		fmt.Printf("failed to push %s image: %s\n", imgName, err)
-
-		// fetch all platforms
-		fmt.Printf("fetch %s image\n", imgName)
-		img, err = cntCli.Fetch(ctx, imgPrefix+imgName, dockerIoResolver)
+		fmt.Printf("pull %s\n", imgPrefix+imgName)
+		err := imgSvc.PullImage(context.Background(), imgPrefix+imgName, "", &plat, metaHeaders, pullAuthCfg, os.Stdout)
 		if err != nil {
-			return fmt.Errorf("failed to fetch %s image: %s", imgName, err)
-		}
-		cntImg = containerd.NewImage(cntCli, img)
-
-		// unpack an image
-		plats, err := images.Platforms(ctx, cntImg.ContentStore(), cntImg.Target())
-		if err != nil {
-			return fmt.Errorf("failed to get platforms: %s", err)
+			return fmt.Errorf("failed to pull %s image: %s", imgName, err)
 		}
 		
-		for _, plat := range plats {
-			fmt.Printf("unpack ARCH: %s, OS: %s\n", plat.Architecture, plat.OS)
-			i := containerd.NewImageWithPlatform(cntCli, img, platforms.Only(plat))
-			err = i.Unpack(ctx, "")
-			if err != nil {
-				fmt.Printf("failed to unpack image: %s\n", err)
-				
-				_, err = cntCli.Pull(ctx, imgPrefix+imgName, containerd.WithPlatformMatcher(platforms.Only(plat)), containerd.WithPullUnpack, dockerIoResolver)
-				if err != nil {
-					return fmt.Errorf("failed to pull %s", imgName)
-				}
-			}
+		newTag, err := imgSvc.TagImage(imgName, regAddr+"/"+imgName, "")
+		if err != nil {
+			return fmt.Errorf("failed to tag %s image: %s", imgName, err)
+		}
+		fmt.Printf("tagged %s\n", newTag)
+
+		fmt.Printf("push %s\n", regAddr+"/"+imgName)		
+		err = imgSvc.PushImage(context.Background(), regAddr+"/"+imgName, "", metaHeaders, authCfgLocal, os.Stdout)
+		if err != nil {
+			return fmt.Errorf("failed to push %s image: %s\n", imgName, err)			
 		}
 
-		// push an image
-		err = cntCli.Push(ctx, regAddr+"/"+imgName, cntImg.Target(), pushResolver)
-		if err != nil {
-			return fmt.Errorf("failed to push %s to the registry: %s", imgName, err)
-		}
-		
-		findImgList[imgName].present = true // success
+		findImgList[imgName].present = true
 		return nil // success
 	}
 
-	errorF := false
-	for i := 0; i < 5; i++ {
-		for imgName, attr := range findImgList {
-			if attr.present == true {
-				continue
-			}
-
-			// This image does not exist in the registry			
-			err = pullPushImage(attr.prefix, imgName)
-			if err != nil {
-				fmt.Printf("%s\n", err)
-				errorF = true
-			}
-		}
-		
-		if errorF == false {
-			return // success
+	for imgName, attr := range findImgList {
+		if attr.present == true {
+			continue
 		}
 
-		if i == 4 {
-			fmt.Printf("give up\n")
-			os.Exit(5) // give up
+		// This image does not exist in the registry			
+		err = pullPushImage(attr.prefix, imgName)
+		if err != nil {
+			fmt.Printf("%s\n", err)
+			os.Exit(12)
 		}
-
-		time.Sleep(5*time.Second) // sleep 5s
-		errorF = false // retry
 	}
+}
+
+func initImageService(regAddr string) (imgSvc *images.ImageService, boltdb *bbolt.DB, retErr error){
+	baseDir := "/work"
+	imageRoot := baseDir+"/image/overlayfs"	
+	
+	err := os.MkdirAll(baseDir+"/content", 0700)
+	if err != nil {
+		retErr = fmt.Errorf("failed to make a directory: %s", err)
+		return
+	}
+	
+	// create temporary stores
+	pluginStore := plugin.NewStore()
+	layerStores := make(map[string]layer.Store)
+	layerStores["linux"], err = layer.NewStoreFromOptions(layer.StoreOptions{
+		Root: baseDir,
+		MetadataStorePathTemplate: baseDir+"/image/%s/layerdb",
+		IDMapping: &idtools.IdentityMapping{},
+		PluginGetter: pluginStore,
+		OS: "linux",
+		ExperimentalEnabled: true,
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a layer store: %s", err)
+		return
+	}
+
+	fsBackend, err := image.NewFSStoreBackend(imageRoot+"/imagedb")
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a backend: %s", err)
+		return
+	}
+
+	layerMap := make(map[string]image.LayerGetReleaser)
+	layerMap["linux"] = layerStores["linux"]
+	
+	imageStore, err := image.NewImageStore(fsBackend, layerMap)
+	if err != nil {
+		retErr = fmt.Errorf("failed to create an image store: %s", err)
+		return
+	}
+
+	refStore, err := reference.NewReferenceStore(imageRoot+"/repositories.json")
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a reference store: %s", err)
+		return
+	}
+
+	distMetaStore, err := distmeta.NewFSMetadataStore(imageRoot+"/distribution")
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a metatdata store: %s", err)
+		return
+	}
+
+	regSvc, err := registry.NewService(registry.ServiceOptions{
+		InsecureRegistries: []string{regAddr,},
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a registry service: %s", err)
+		return
+	}
+
+	contentStore, err := local.NewStore(baseDir+"/content/data")
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a local content store: %s", err)
+		return
+	}
+	
+	boltdb, err = bbolt.Open(baseDir+"/content/metadata.db", 0600, nil)
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a bolt database: %s", err)
+		return
+	}
+	metadb := metadata.NewDB(boltdb, contentStore, nil)
+	
+	imgSvcCfg := images.ImageServiceConfig{
+		DistributionMetadataStore: distMetaStore,
+		ImageStore: imageStore,
+		ContentStore: metadb.ContentStore(),
+		Leases: metadata.NewLeaseManager(metadb),
+		ContentNamespace: "tmpstore",
+		ReferenceStore: refStore,
+		RegistryService: regSvc,
+		LayerStores: layerStores,
+		MaxConcurrentDownloads: 3,
+		MaxConcurrentUploads: 5,
+		MaxDownloadAttempts: 5,
+		EventsService: events.New(),
+	}
+	
+	imgSvc = images.NewImageService(imgSvcCfg)
+	return// success
 }
