@@ -152,7 +152,7 @@ class HndIsoDep(
         var certRaw = this.readBinary(9)
 
         val tagAndLen = certRaw // get ANS1 tag and length
-        var tag = tagAndLen[0].toUByte().toLong() and 0x1fL // add code here
+        var tag = tagAndLen[0].toUByte().toLong() and 0x1fL
         var offset = 1
         var tmp = tagAndLen[offset].toUByte().toLong()
 
