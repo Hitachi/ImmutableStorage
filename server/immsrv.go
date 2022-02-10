@@ -174,47 +174,6 @@ type channelConf struct {
 	ClientOU string `yaml:"ClientOU"`
 }
 
-// import from github.com/cloudflare/cfssl/api
-// ResponseMessage implements the standard for response errors and
-// messages. A message has a code and a string message.
-type ResponseMessage struct {
-        Code    int    `json:"code"`
-        Message string `json:"message"`
-}
-
-// Response implements the CloudFlare standard for API
-// responses.
-type Response struct {
-        Success  bool              `json:"success"`
-        Result   interface{}       `json:"result"`
-        Errors   []ResponseMessage `json:"errors"`
-        Messages []ResponseMessage `json:"messages"`
-}
-
-// Attributes contains attribute names and values
-type Attributes struct {
-	Attrs map[string]string `json:"attrs"`
-}
-
-// Attribute is a name and value pair
-type Attribute struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-	ECert bool   `json:"ecert,omitempty"`
-}
-
-// IdentityResponse is the response from the any add/modify/remove identity call
-type IdentityResponse struct {
-	ID             string      `json:"id" skip:"true"`
-	Type           string      `json:"type,omitempty"`
-	Affiliation    string      `json:"affiliation"`
-	Attributes     []Attribute `json:"attrs,omitempty" mapstructure:"attrs"`
-	MaxEnrollments int         `json:"max_enrollments,omitempty" mapstructure:"max_enrollments"`
-	Secret         string      `json:"secret,omitempty"`
-	CAName         string      `json:"caname,omitempty"`
-}
-
-
 func (s *server) checkCredential(funcName string, reqParam proto.Message) (*x509.Certificate, error) {
 	param := proto.Clone(reqParam)
 	credMsg := proto.MessageReflect(param)
@@ -286,7 +245,7 @@ func getStorageAdminHost(cert *x509.Certificate) string {
 			continue
 		}
 
-		attrs := &Attributes{}
+		attrs := &immclient.Attributes{}
 		err := json.Unmarshal(ext.Value, attrs)
 		if err != nil {
 			continue
