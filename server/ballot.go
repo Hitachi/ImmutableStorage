@@ -48,9 +48,7 @@ const (
 	VOTER_STA = "imm.VoterState"
 	VOTER_STA_registered = "registered"
 	VOTER_STA_voted = "voted"
-	AUTH_Param = "imm.AuthParam"
 	AUTH_UserParam = "imm.AuthUserParam"
-	
 )
 
 func ballotCreateBox(req *immop.BallotFuncRequest, cert *x509.Certificate) (rsp []byte, retErr error) {

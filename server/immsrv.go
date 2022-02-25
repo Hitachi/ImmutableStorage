@@ -130,9 +130,14 @@ const (
 
 	affnJPKIPrefix = "FedJPKI:"
 	affnLDAPPrefix = "FedLDAP:"
+	affnFEDPrefix = "FedUSER:"
 	authJPKIPrefix = "JPKI"
 	authLDAPPrefix = "LDAP"
 	authCAPrefix = "CA"
+	authOAuthPrefix = "OAUTH"
+	
+	AUTH_Param = "imm.AuthParam"
+	ROLE_Prefix = "imm.Role."
 )
 
 type signerState struct {
@@ -3798,6 +3803,8 @@ func (s *server) RegisterUser(ctx context.Context, req *immop.RegisterUserReques
 		adminCert, retErr = registerLDAPAdmin(caCli, tmpPriv, tmpCert, req)
 	case "JPKI":
 		adminCert, retErr = registerJPKIAdmin(caCli, tmpPriv, tmpCert, req)
+	case "OAUTH_GRAPH":
+		adminCert, retErr = registerOAuthAdmin(caCli, tmpPriv, tmpCert, req)
 	default:
 		retErr = fmt.Errorf("unknown authentication type: %s", req.AuthType)
 	}
@@ -3834,16 +3841,19 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	username := csr.Subject.CommonName
 	caName := s.parentCert.Subject.CommonName
 	caCli := cacli.NewCAClient("https://"+caName+cacli.DefaultPort)
-	
-	adminID, authType, err := immutil.GetAdminID(username, caName)
-	if err != nil || strings.HasPrefix(authType, authCAPrefix) {
-		// request to CA
-		reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
-		return
-	}
-	adminUser := &immclient.UserID{Name: adminID.Name, Priv: adminID.Priv, Cert: adminID.Cert, Client: caCli, }
-	
 
+	adminUser, authType := getOAuthAdminID(username, req.Secret)
+	if adminUser == nil {
+		var adminID *immutil.AdminID
+		adminID, authType, err = immutil.GetAdminID(username, caName)
+		if err != nil || strings.HasPrefix(authType, authCAPrefix) {
+			// request to CA
+			reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
+			return
+		}
+		adminUser = &immclient.UserID{Name: adminID.Name, Priv: adminID.Priv, Cert: adminID.Cert, Client: caCli, }
+	}
+	
 	// Enrolling user is federated user
 	retErr = authenticateFedUser(adminUser, authType, username, req.Secret)
 	if retErr != nil {
@@ -3851,7 +3861,7 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	}
 	// authentication success
 
-	if adminID.Name == username {
+	if adminUser.Name == username {
 		reply.Cert, retErr = caCli.ReenrollCAUser(adminUser, enrollReq)
 		return
 	}
@@ -3866,15 +3876,22 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	return
 }
 
-func authenticateFedUser(adminID *immclient.UserID, authType, username, secret string) (error) {
+func authenticateFedUser(adminID *immclient.UserID, authType, username, secret string) (retErr error) {
 	if strings.HasPrefix(authType, authLDAPPrefix) {
-		return authenticateLDAPUser(adminID, authType, username, secret)
+		retErr = authenticateLDAPUser(adminID, authType, username, secret)
+		return
 	}
 	if strings.HasPrefix(authType, authJPKIPrefix) {
-		return fmt.Errorf("unsupported authentication type ")
+		retErr = fmt.Errorf("unsupported authentication type ")
+		return
+	}
+	if strings.HasPrefix(authType, authOAuthPrefix) {
+		retErr = authenticateOAuthUser(adminID, authType, username, secret)
+		return
 	}
 	
-	return fmt.Errorf("unknown authentication type")
+	retErr = fmt.Errorf("unknown authentication type")
+	return
 }
 
 func (s *server) CommCA(ctx context.Context, req *immop.CommCARequest) (reply *immop.CommCAReply, retErr error) {
@@ -4037,8 +4054,11 @@ func main() {
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
+
+	org := cert.Subject.Organization[0]
+	createOAuthHandler(org)
 	
-	caSecretName := immutil.CAHostname + "." + cert.Subject.Organization[0]
+	caSecretName := immutil.CAHostname + "." + org
 	_, parentCertPem, err := immutil.K8sGetKeyPair(caSecretName)
 	if err != nil {
 		log.Fatalf(err.Error())
@@ -4062,7 +4082,7 @@ func main() {
 	immserver := &server{
 		parentCert: parentCert,
 		parentCertPem: parentCertPem,
-		org: cert.Subject.Organization[0], 
+		org: org,
 		signer: make(map[string]*signerState),
 	}
 
