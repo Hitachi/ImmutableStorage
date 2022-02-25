@@ -412,6 +412,57 @@ func loadBaseCert(username, caName string) (baseCert *x509.Certificate, authType
 	return // success
 }
 
+func listBaseCert(authType, caName string) (baseCerts []*x509.Certificate, retErr error) {
+	list, err := K8sListConfigMap("config="+cmFedUserLabel)
+	if err != nil {
+		retErr = fmt.Errorf("failed to list ConfigMaps: %s", err)
+		return
+	}
+
+	for _, cfgMap := range list.Items {
+		if cfgMap.BinaryData == nil {
+			continue
+		}
+
+		adminNamePrefix := "@"
+		if cfgMap.Name == caName + cfgMapFedUser {
+			adminNamePrefix = ""
+		}
+		
+
+		for fedName, certIDRaw := range cfgMap.BinaryData {
+			id := &certID{}
+			err = json.Unmarshal(certIDRaw, id)
+			if err != nil {
+				continue
+			}
+
+			if id.AuthType != authType {
+				continue
+			}
+
+			
+			adminName := strings.ReplaceAll(fedName, "..", "@")
+			adminName = adminNamePrefix + adminName
+				
+			sn := &big.Int{}
+			sn.SetString(id.SerialNumber, 62)
+			baseCert := &x509.Certificate{
+				SerialNumber: sn,
+				Subject: pkix.Name{
+					CommonName: adminName,
+					OrganizationalUnit: []string{"client"},
+				},
+				AuthorityKeyId: id.AuthorityKeyId,
+			}
+
+			baseCerts = append(baseCerts, baseCert)
+		}
+	}
+
+	return // success
+}
+
 type AdminID struct{
 	Name string
 	Priv []byte
@@ -440,3 +491,31 @@ func GetAdminID(username, caName string) (id *AdminID, authType string, retErr e
 	id = &AdminID{Name: baseCert.Subject.CommonName, Priv: adminPriv, Cert: adminCert, }
 	return // success
 }
+
+func GetAdminIDs(authType, caName string) (ids []*AdminID, retErr error) {
+	baseCerts, err := listBaseCert(authType, caName)
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	caPriv, caCert, err := K8sGetKeyPair(caName)
+	if err != nil {
+		retErr = fmt.Errorf("There is no CA on this cluster: " + err.Error())
+		return
+	}
+
+	for _, baseCert := range baseCerts {
+		id := &AdminID{Name: baseCert.Subject.CommonName, }
+		id.Priv, id.Cert, err = CreateTemporaryCert(baseCert, caPriv, caCert)
+		if err != nil {
+			retErr = fmt.Errorf("failed to create a temporary certificate: " + err.Error())
+			return
+		}
+
+		ids = append(ids, id)
+	}
+
+	return // success
+}
+

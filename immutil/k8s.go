@@ -19,7 +19,9 @@ package immutil
 import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/remotecommand"	
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	//	apiapp "k8s.io/api/apps/v1"
@@ -34,10 +36,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"io"
+	"log"
 	"strings"
 	"bufio"
-
 	"crypto/x509/pkix"
+	"golang.org/x/term"
 )
 
 const (
@@ -58,33 +61,31 @@ func IsInKube() bool {
 	return isInKubeF
 }
 
-func createClientSet() (*kubernetes.Clientset, error) {
-	var config *rest.Config
-	var err error
-
+func createClientSet() (clientset *kubernetes.Clientset, config *rest.Config, retErr error) {
 	isInKubeF := IsInKube()
 	if isInKubeF {
 		// inside kubernetes
-		config, err = rest.InClusterConfig()
+		config, retErr = rest.InClusterConfig()
 	} else {
-		config, err = clientcmd.BuildConfigFromFlags("", os.Getenv("HOME")+"/.kube/config")
-	}
-		
-	//	config, err := clientcmd.BuildConfigFromFlags("", "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get kubernetes config: %s\n", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create a client-set: %s\n", err)
+		config, retErr = clientcmd.BuildConfigFromFlags("", os.Getenv("HOME")+"/.kube/config")
 	}
 	
-	return clientset, nil
+	if retErr != nil {
+		retErr = fmt.Errorf("failed to get kubernetes config: %s\n", retErr)
+		return
+	}
+	
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a client-set: %s\n", err)
+		return
+	}
+	
+	return // success
 }
 
 func K8sGetDeploymentClient() (appsv1.DeploymentInterface, error) {
-	clientset, err := createClientSet()
+	clientset, _, err := createClientSet()
 	if err != nil {
 		return nil, err
 	}
@@ -93,15 +94,26 @@ func K8sGetDeploymentClient() (appsv1.DeploymentInterface, error) {
 }
 
 func K8sGetPodClient() (clientv1.PodInterface, error) {
-	clientset, err := createClientSet()
+	clientset, _, err := createClientSet()
 	if err != nil {
 		return nil, err
 	}
 	return clientset.CoreV1().Pods(corev1.NamespaceDefault), nil
 }
 
+func K8sGetRESTClient() (client rest.Interface, config *rest.Config, retErr error) {
+	var clientset *kubernetes.Clientset
+	clientset, config, retErr = createClientSet()
+	if retErr != nil {
+		return
+	}
+
+	client = clientset.CoreV1().RESTClient()
+	return // success
+}
+
 func K8sGetServiceClient() (clientv1.ServiceInterface, error) {
-	clientset, err := createClientSet()
+	clientset, _, err := createClientSet()
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +143,7 @@ func K8sDeleteService(serviceName string) error {
 }
 
 func K8sGetRegistryService() (service *corev1.Service, retErr error) {
-	clientset, retErr := createClientSet()
+	clientset, _, retErr := createClientSet()
 	if retErr != nil {
 		return
 	}
@@ -195,7 +207,7 @@ func K8sGetConfigMapsClient() (clientv1.ConfigMapInterface, error) {
 }
 
 func K8sGetConfigMapsClientWithNamespace(name string) (clientv1.ConfigMapInterface, error) {
-	clientset, err := createClientSet()
+	clientset, _, err := createClientSet()
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +216,7 @@ func K8sGetConfigMapsClientWithNamespace(name string) (clientv1.ConfigMapInterfa
 }
 
 func K8sGetSecretsClient() (clientv1.SecretInterface, error) {
-	clientset, err := createClientSet()
+	clientset, _, err := createClientSet()
 	if err != nil {
 		return nil, err
 	}
@@ -839,7 +851,56 @@ func K8sGetOrgWorkVol(org string) (vol *corev1.VolumeSource, retErr error) {
 	vol = &corev1.VolumeSource{}
 	err = vol.Unmarshal(volData)
 	if err != nil {
-		retErr = fmt.Errorf("unexpected volume data: %d", err)
+		retErr = fmt.Errorf("unexpected volume data: %s", err)
+		return
+	}
+
+	return // success
+}
+
+func K8sExecCmd(podName, containerName string, cmd []string) (retErr error) {
+	client, config, err := K8sGetRESTClient()
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	req := client.Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(corev1.NamespaceDefault).
+		SubResource("exec")
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: containerName,
+		Command: cmd,
+		Stdin: true,
+		Stdout: true,
+		TTY: true,
+	}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		retErr = fmt.Errorf("failed to create an executor: %s", err)
+		return
+	}
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		log.Printf("failed to get current terminal state: %s", err)
+	} else {
+		defer func() {
+			term.Restore(int(os.Stdin.Fd()), oldState)
+		}()
+	}
+
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdin: os.Stdin,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+		Tty: true,
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to execute a command: %s\n", err)
 		return
 	}
 

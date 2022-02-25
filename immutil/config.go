@@ -31,13 +31,12 @@ const (
 	ImmsrvHostname = "immsrv"
 	EnvoyHostname = "envoy"
 	TlsCAHostname = "tlsca"
-	DinDHostname = "dind"
+	OAuthHostname = "oauth"
 
 	CaImg = "hyperledger/fabric-ca:1.5.0"
 	OrdererImg = "hyperledger/fabric-orderer:1.4.11"
 	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.22"
 	PeerImg = "hyperledger/fabric-peer:1.4.11"
-	//DockerImg = "library/docker:19.03.15-dind"
 	DockerImg = "quay.io/podman/stable:v3.4.4"
 	
 	ImmHttpdImg = "library/httpd:2.4.46"
