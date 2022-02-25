@@ -656,6 +656,7 @@ func makeGeneralAppUserRegHtml() string {
     <select id="authType" onchange="selectedAuthType()">
       <option value="CA">Certificate authority</option>
       <option value="LDAP">LDAP</option>
+      <option value="OAUTH_GRAPH">MS Graph (OAuth2)</option>
       <option value="JPKI">JPKI</option>
     </select>
   </div>
@@ -819,6 +820,41 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 		authAttrArea.Set("innerHTML", html)
 		regSecretAreaHiddenF = true
 		registerNameHiddenF = true
+	case "OAUTH_GRAPH":
+		id, err := websto.GetCurrentID()
+		org := ""
+		if err == nil {
+			org, _ = id.GetIssuerOrg()
+		}
+		html := `
+          <div class="row">
+            <div class="cert-item"><label for="groupName">Group name</label></div>
+            <div class="cert-input"><input type="text" id="groupName" value="group1"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="clientID">Client ID</label></div>
+            <div class="cert-input"><input type="text" id="clientID"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="secretValue">Client secret value</label></div>
+            <div class="cert-input"><input type="text" id="secretValue"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="allowPrincipalDomains">Allow principal domains</label></div>
+            <div class="cert-input"><input type="text" id="allowPrincipalDomains" value="example.com"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="redirectURL">Redirect URL</label></div>
+            <div class="cert-input"><input type="text" id="redirectURL" value="https://www.`+org+`/graphcallback" readonly></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="Login URL">Login URL</label></div>
+            <div class="cert-input"><input type="text" id="loginURL" value="https://www.`+org+`/graphcallback/login/group1" readonly></div>
+		  </div>`
+		
+		authAttrArea.Set("innerHTML", html)
+		regSecretAreaHiddenF = true
+		registerNameHiddenF = true
 	default:
 		print("unknown authentication type: " + authTypeSel + "\n")
 		return nil
@@ -946,6 +982,7 @@ func registerAppUser(appendReq *immclient.RegistrationRequest) error {
 	}
 	
 	var authParam proto.Message
+	var authParamRaw []byte
 	switch authType {
 	case "CA":
 		secret := doc.Call("getElementById", "registerSecret").Get("value").String()
@@ -992,13 +1029,34 @@ func registerAppUser(appendReq *immclient.RegistrationRequest) error {
 		authParam = &immop.AuthParamJPKI{
 			ImportItems: doc.Call("querySelector", "input[name=\"privacyInfoType\"]:checked").Get("value").String(),
 		}
+	case "OAUTH_GRAPH":
+		authParamS := &struct{
+			GroupName string
+			ClientID string
+			SecretValue string
+			AllowDomains string
+		}{
+			GroupName: doc.Call("getElementById", "groupName").Get("value").String(),
+			ClientID: doc.Call("getElementById", "clientID").Get("value").String(),
+			SecretValue: doc.Call("getElementById", "secretValue").Get("value").String(),
+			AllowDomains: doc.Call("getElementById", "allowPrincipalDomains").Get("value").String(),
+		}
+		authParamRaw, err = json.Marshal(authParamS)
+		if err != nil {
+			return errors.New("failed to get authentication parameters: " + err.Error())
+		}
+		org, _ := id.GetIssuerOrg()
+		loginURL := "https://www."+org+"/graphcallback/login/"+authParamS.GroupName
+		doc.Call("getElementById", "loginURL").Set("value", loginURL)
 	default:
 		return errors.New("unknown authentication type: " + authType)
 	}
 
-	authParamRaw, err := proto.Marshal(authParam)
-	if err != nil {
-		return errors.New("failed to marshal authentication parameter: " + err.Error())
+	if authParamRaw == nil {
+		authParamRaw, err = proto.Marshal(authParam)
+		if err != nil {
+			return errors.New("failed to marshal authentication parameter: " + err.Error())
+		}
 	}
 
 	regReq := &immop.RegisterUserRequest{

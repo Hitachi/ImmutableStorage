@@ -237,8 +237,7 @@ func registerJPKIUser(caName string, req []byte) (rsp []byte, retErr error) {
 
 	_, err = getJPKIUsernameByPubKey(id, authPubAsn1)
 	if err == nil {
-		// This user has been already registered
-		retErr = fmt.Errorf("this user has been already registerd")
+		retErr = fmt.Errorf("This user has already been registerd")
 		return
 	}
 

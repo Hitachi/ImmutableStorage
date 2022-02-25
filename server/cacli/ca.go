@@ -160,7 +160,7 @@ func (cli *CAClient) RegisterAndEnrollUser(adminID *immclient.UserID, userType, 
 		return cli.EnrollCAUser(username, caSecret, req)
 	}
 	
-	// register an LDAP user
+	// register a user
 	regReq := &immclient.RegistrationRequest{
 		Name: username,
 		Attributes: *userAttrs,
