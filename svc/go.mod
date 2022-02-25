@@ -13,6 +13,7 @@ require (
 	github.com/containerd/continuity v0.2.2 // indirect
 	github.com/coreos/etcd v3.3.27+incompatible // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
+	github.com/docker/distribution v2.8.0+incompatible // indirect
 	github.com/docker/docker v20.10.12+incompatible
 	github.com/docker/libtrust v0.0.0-20160708172513-aabc10ec26b7 // indirect
 	github.com/docker/swarmkit v1.12.1-0.20200604173159-967c829cdd33 // indirect
