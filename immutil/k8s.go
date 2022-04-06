@@ -734,7 +734,7 @@ func k8sGenerateOrgConfig(org string) (config *ImmConfig, retErr error) {
 			configYaml += item[1] + "\n" // set default string
 			continue
 		}
-		configYaml += item[0] + "\n" // set enviriment variable
+		configYaml += item[0] + "\n" // set environment variable
 	}
 
 	config, retErr = convertYamlToStruct(org, []byte(configYaml))
@@ -804,7 +804,7 @@ func K8sGetMyVolume() (volData []byte, retErr error) {
 	hostname := os.Getenv("HOSTNAME")
 	pod, err := cli.Get(context.TODO(), hostname, metav1.GetOptions{})
 	if err != nil {
-		retErr = fmt.Errorf("not found my pod")
+		retErr = fmt.Errorf("not found my pod: %s", err)
 		return 
 	}
 

@@ -8,7 +8,7 @@ metadata:
 
 spec:
   containers:
-  - image: localhost:32000/imms:1.2.1
+  - image: localhost:32000/imms:1.3.0
     env:
     - name: IMMS_ORG
       value: example.com
@@ -30,9 +30,12 @@ spec:
     #  - "365d"
     imagePullPolicy: IfNotPresent
     name: imms
+    # SYS_ADMIN is required for the program to mount the overlay2.
+    # NET_ADMIN is for the image builder to create the docker bridge network.
     securityContext:
       capabilities:
-        add: ["SYS_ADMIN"] # To pull docker images, a program needs the overlay2 mount.
+        add: ["SYS_ADMIN", "NET_ADMIN"]
+        
     volumeMounts:
     - mountPath: /var/lib/ImmutableST/org
       name: work-vol

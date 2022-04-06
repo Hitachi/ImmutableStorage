@@ -17,6 +17,9 @@ limitations under the License.
 package immutil
 
 import (
+	"archive/tar"
+	"bytes"
+	"time"
 	"os"
 	"os/exec"
 	"fmt"
@@ -46,4 +49,37 @@ func CopyTemplate(templateDir, dstDir string) error {
 	}
 
 	return nil // success
+}
+
+type TarData struct {
+	Header *tar.Header
+	Body []byte
+}
+
+func GetTarBuf(data []TarData) (bytes.Buffer, error) {
+	var buf bytes.Buffer
+	tarW := tar.NewWriter(&buf)
+
+	for _, tarFile := range data {
+		tarFile.Header.ModTime = time.Now()
+		tarFile.Header.Format = tar.FormatGNU
+		err := tarW.WriteHeader(tarFile.Header)
+		if err != nil {
+			return buf, fmt.Errorf("failed to archive "+tarFile.Header.Name)
+		}
+		if tarFile.Body == nil {
+			continue
+		}
+		_, err = tarW.Write(tarFile.Body)
+		if err != nil {
+			return buf, fmt.Errorf("failed to write "+tarFile.Header.Name+": "+err.Error())
+		}
+	}
+
+	err := tarW.Close()
+	if err != nil {
+		return buf, fmt.Errorf("failed to flush tar")
+	}
+
+	return buf, nil
 }
