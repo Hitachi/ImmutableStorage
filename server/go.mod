@@ -26,7 +26,7 @@ require (
 	github.com/Knetic/govaluate v3.0.0+incompatible // indirect
 	github.com/Microsoft/go-winio v0.5.1 // indirect
 	github.com/Shopify/sarama v1.31.0 // indirect
-	github.com/containerd/containerd v1.5.9 // indirect
+	github.com/containerd/containerd v1.5.10 // indirect
 	github.com/docker/docker v20.10.12+incompatible // indirect
 	github.com/fsouza/go-dockerclient v1.3.6 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.1
