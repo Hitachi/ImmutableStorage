@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"io"
+	"bytes"
 	"strings"
 	"strconv"
 	"encoding/json"
@@ -29,7 +30,12 @@ import (
 
 type RegClient struct {
 	url string
+	token string // token such as Azure AD access token
 }
+
+const (
+	acrSuffix = "azurecr.io"
+)
 
 func GetLocalRegistryAddr() (addr string, retErr error) {
 	service, err := K8sGetRegistryService()
@@ -96,9 +102,10 @@ func ParseCredential(cred string) (username, secret string) {
 	return
 }
 
-func NewRegClient(url string) (cli *RegClient, retErr error) {
+func NewRegClient(url, token string) (cli *RegClient, retErr error) {
 	cli = &RegClient{}
 	cli.url = url
+	cli.token = token
 
 	retErr = cli.GetBase()
 	if retErr != nil {
@@ -151,7 +158,7 @@ func getGW() (gwAddr string, retErr error) {
 	return
 }
 
-func (regCli *RegClient) sendReq(req *http.Request) (rsp *http.Response, rspBody []byte, retErr error) {
+func (cli *RegClient) sendReq(req *http.Request) (rsp *http.Response, rspBody []byte, retErr error) {
 	client := &http.Client{}
 	rsp, err := client.Do(req)
 	if err != nil {
@@ -160,7 +167,7 @@ func (regCli *RegClient) sendReq(req *http.Request) (rsp *http.Response, rspBody
 	}
 	
 	if rsp.Body == nil {
-		retErr = fmt.Errorf("responded body is nil")
+		//retErr = fmt.Errorf("responded body is nil")
 		return
 	}
 	defer rsp.Body.Close()
@@ -174,6 +181,179 @@ func (regCli *RegClient) sendReq(req *http.Request) (rsp *http.Response, rspBody
 	return
 }
 
+func (cli *RegClient) sendReqWithAuth(req *http.Request, expectedStatus int) (rsp *http.Response, rspBody []byte, retErr error) {
+	rsp, rspBody, retErr = cli.sendReq(req)
+	if retErr != nil {
+		return
+	}
+	
+	if rsp.StatusCode == expectedStatus {
+		return // success
+	}
+	
+	if rsp.StatusCode != http.StatusUnauthorized {
+		retErr = fmt.Errorf("got an error: status=%s", rsp.Status)
+		return // error
+	}
+	
+	accessToken, scheme, err := cli.getAccessToken(rsp.Header.Get("WWW-Authenticate"), "")
+	if err != nil {
+		retErr = err
+		return
+	}
+	token := scheme + " " + accessToken
+	req.Header.Set("Authorization", token)
+
+	rsp, rspBody, retErr = cli.sendReq(req)
+	if retErr != nil {
+		return
+	}
+
+	if rsp.StatusCode == expectedStatus {
+		return // success
+	}
+
+	retErr = fmt.Errorf("got an error: status=%s", rsp.Status)
+	return // failure
+}
+
+func (cli *RegClient) getAccessToken(wwwAuth, expectScope string) (accessToken, scheme string, retErr error) {
+	// authenticate
+	if cli.token == "" {
+		retErr = fmt.Errorf("Token is not specified")
+		return // error
+	}
+
+	if wwwAuth == "" {
+		retErr = fmt.Errorf("failed to get WWW-Authenticate")
+		return
+	}
+		
+	paramsStr := strings.TrimPrefix(wwwAuth, "Bearer ")
+	if paramsStr == wwwAuth {
+		paramsStr = strings.TrimPrefix(wwwAuth, "Basic ")
+		if paramsStr != wwwAuth {
+			scheme = "Basic"
+			accessToken = cli.token
+			return
+		}
+		
+		retErr = fmt.Errorf("unsupported scheme")
+		return
+	}
+
+	// Bearer
+	scheme = "Bearer"
+	paramsStr = strings.ReplaceAll(paramsStr, `"`, "")
+	params := strings.Split(paramsStr, ",")
+	tokenURL := ""
+	service := ""
+	scope := ""
+	for _, param := range params {
+		realm := strings.TrimPrefix(param, `realm=`)
+		if realm != param {
+			tokenURL = realm
+		}
+		if strings.HasPrefix(param, "service=") {
+			service = param
+		}
+		if strings.HasPrefix(param, "scope=") {
+			scope = param
+		}
+	}
+
+	if !strings.HasSuffix(tokenURL, acrSuffix + "/oauth2/token") {
+		retErr = fmt.Errorf("Unknown realm: %s", tokenURL)
+		return
+	}
+
+	exchangeURL := strings.Replace(tokenURL, "/oauth2/token", "/oauth2/exchange", 1)
+	exchangeParams := "grant_type=access_token&" + service + "&access_token=" + cli.token
+
+	req, err := http.NewRequest("POST", exchangeURL, bytes.NewReader([]byte(exchangeParams)))
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a POST reqeust: %s", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rsp, rspBody, err := cli.sendReq(req)
+
+	if rsp.StatusCode != http.StatusOK {
+		retErr = fmt.Errorf("failed to get a refresh token: status=%s", rsp.Status)
+		return
+	}
+
+	rspData := &struct{REFRESH_TOKEN string}{}
+	err = json.Unmarshal(rspBody, rspData)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected refresh token: %s", err)
+		return
+	}
+	refreshToken := rspData.REFRESH_TOKEN
+
+	getTokenParams := "grant_type=refresh_token&" + service
+	
+	if scope == "" {
+		scope = "scope=registry::"
+	}
+	if expectScope != "" {
+		scope = expectScope
+	}
+	getTokenParams += "&" + scope
+	getTokenParams += "&refresh_token=" + refreshToken
+	req, err = http.NewRequest("POST", tokenURL, bytes.NewReader([]byte(getTokenParams)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rsp, rspBody, err = cli.sendReq(req)
+
+	if rsp.StatusCode != http.StatusOK {
+		retErr = fmt.Errorf("failed to get an access token: status=%s", rsp.Status)
+		return
+	}
+
+	tokenData := &struct{ACCESS_TOKEN string}{}
+	err = json.Unmarshal(rspBody, tokenData)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected access token: %s", err)
+		return
+	}
+
+	accessToken = tokenData.ACCESS_TOKEN
+	return // success
+}
+
+func (cli *RegClient) GetRegistryToken() (token string, retErr error) {
+	url := cli.url + "/v2/"
+	req, err :=  http.NewRequest("GET", url, nil)
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a request: " + err.Error())
+		return
+	}
+	
+	rsp, _, retErr := cli.sendReq(req)
+	if retErr != nil {
+		return
+	}
+
+	if rsp.StatusCode != http.StatusUnauthorized {
+		retErr = fmt.Errorf("got an error: status=%s", rsp.Status)
+		return // error
+	}
+
+	accessToken, scheme, err := cli.getAccessToken(rsp.Header.Get("WWW-Authenticate"), "scope=repository:*:pull,push")
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	if scheme != "Bearer" {
+		retErr = fmt.Errorf("unsupported scheme: %s", scheme)
+		return
+	}
+
+	token = accessToken
+	return // success
+}
+
 func (cli *RegClient) GetBase() (retErr error) {
 	url := cli.url + "/v2/"
 	req, err := http.NewRequest("GET", url, nil)
@@ -182,17 +362,8 @@ func (cli *RegClient) GetBase() (retErr error) {
 		return
 	}
 
-	rsp, _, retErr := cli.sendReq(req)
-	if retErr != nil {
-		return
-	}
-
-	if rsp.Status == "200 OK" {
-		return // success
-	}
-
-	retErr = fmt.Errorf("get error: status=%s", rsp.Status)
-	return // success
+	_, _, retErr = cli.sendReqWithAuth(req, http.StatusOK)
+	return
 }
 
 func (cli *RegClient) ListRepositoriesInReg() (repo []string, retErr error) {
@@ -203,9 +374,9 @@ func (cli *RegClient) ListRepositoriesInReg() (repo []string, retErr error) {
 		return
 	}
 
-	_, rspBody, err := cli.sendReq(req)
+	_, rspBody, err := cli.sendReqWithAuth(req, http.StatusOK)
 	if err != nil {
-		retErr = fmt.Errorf("could not read the body: " + err.Error())
+		retErr = fmt.Errorf("failed to list repositories: %s", err)
 		return
 	}
 
@@ -234,13 +405,9 @@ func (cli *RegClient) GetDigest(name, tag string) (digest string, retErr error){
 	}
 
 	req.Header.Set("Accept", manifestFormats[0]+","+manifestFormats[1])
-	rsp, _, err := cli.sendReq(req)
+	rsp, _, err := cli.sendReqWithAuth(req, http.StatusOK)
 	if err != nil {
-		retErr = fmt.Errorf("failed to requst: " + err.Error())
-		return
-	}
-	if rsp.Status != "200 OK" {
-		retErr = fmt.Errorf("The specified image does not exist in the registry: receiving a status=%s", rsp.Status)
+		retErr = fmt.Errorf("The specified image does not exist in the registry: %s", err)
 		return
 	}
 	
@@ -267,22 +434,11 @@ func (cli *RegClient) DeleteImgInReg(name, tag string) (retErr error) {
 		return
 	}
 	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
-	
-	client := &http.Client{}
-	rsp, err := client.Do(req)
-	if err != nil {
-		retErr = fmt.Errorf("failed to request: " + err.Error())
-		return
-	}
-	if rsp.Body != nil {
-		defer rsp.Body.Close()
-	}
 
-	if rsp.Status == "202 Accepted" {
-		return // success
+	_, _, err = cli.sendReqWithAuth(req, http.StatusAccepted)
+	if err != nil {	
+		retErr = fmt.Errorf("failed to delete an image in the registry: %s", err)
 	}
-	
-	retErr = fmt.Errorf("failed to delete an image in the registry: receiving a status=%s", rsp.Status)
 	return
 }
 
@@ -294,9 +450,9 @@ func (cli *RegClient) ListTagsInReg(repoName string) (tags []string, retErr erro
 		return
 	}
 
-	_, rspBody, err := cli.sendReq(req)
+	_, rspBody, err := cli.sendReqWithAuth(req, http.StatusOK)
 	if err != nil {
-		retErr = fmt.Errorf("could not read the body: " + err.Error())
+		retErr = fmt.Errorf("failed to list tags: " + err.Error())
 		return
 	}
 

@@ -164,11 +164,6 @@ type ECDSASignature struct {
 	R, S *big.Int
 }
 
-type tarData struct {
-	header *tar.Header
-	body []byte
-}
-
 type channelConf struct {
 	ChannelName string `yaml:"ChannelName"`
 	OrdererHost string `yaml:"OrdererHost"`
@@ -480,7 +475,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 
 	mspID := svc.mspPrefix + org
 	configYaml := s.createConfigYaml()
-	data := []tarData{
+	data := []immutil.TarData{
 		{&tar.Header{ Name: "tls/", Mode: 0755, }, nil },
 		{&tar.Header{ Name: "tls/"+tlsPrivFile, Mode: 0400, Size: int64(len(tlsPriv)), }, tlsPriv },
 		{&tar.Header{ Name: "tls/"+tlsCertFile, Mode: 0444, Size: int64(len(tlsCert)), }, tlsCert},
@@ -498,7 +493,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 		{&tar.Header{ Name: "msp/config.yaml", Mode: 0755, Size: int64(len(configYaml)), }, configYaml},
 	}
 
-	buf, retErr := getTarBuf(data)
+	buf, retErr := immutil.GetTarBuf(data)
 	if retErr != nil {
 		return
 	}
@@ -526,34 +521,6 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 	retErr = svc.createEnv(host, org, tlsPrivFile, tlsCertFile, tlsCACertFile)
 	
 	return
-}
-
-func getTarBuf(data []tarData) (bytes.Buffer, error) {
-	var buf bytes.Buffer
-	tarW := tar.NewWriter(&buf)
-
-	for _, tarFile := range data {
-		tarFile.header.ModTime = time.Now()
-		tarFile.header.Format = tar.FormatGNU
-		err := tarW.WriteHeader(tarFile.header)
-		if err != nil {
-			return buf, fmt.Errorf("failed to archive "+tarFile.header.Name)
-		}
-		if tarFile.body == nil {
-			continue
-		}
-		_, err = tarW.Write(tarFile.body)
-		if err != nil {
-			return buf, fmt.Errorf("failed to write "+tarFile.header.Name)
-		}
-	}
-
-	err := tarW.Close()
-	if err != nil {
-		return buf, fmt.Errorf("failed to flush tar")
-	}
-
-	return buf, nil
 }
 
 func (s *server) createOrderer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
@@ -831,7 +798,7 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 			"CORE_LOGGING_PEER": "debug",
 			"CORE_CHAINCODE_LOGGING_LEVEL": "DEBUG",
 			"CORE_CHAINCODE_LOGGING_SHIM": "DEBUG",
-			"CORE_CHAINCODE_BUILDER": immutil.ContBuildImg,
+			"CORE_CHAINCODE_BUILDER": immutil.ContRuntimeImg,
 			"CORE_CHAINCODE_GOLANG_RUNTIME": immutil.ContRuntimeImg,
 			"CORE_PEER_CHAINCODELISTENADDRESS": "0.0.0.0:7052",
 			"CORE_PEER_TLS_ENABLED": "true",
@@ -886,11 +853,6 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 
 	localReg, _ := immutil.GetLocalRegistryAddr()
 	err = createPodmanConfig("podman."+org, localReg)
-	if err != nil {
-		return err
-	}
-
-	err = createPluginConfig("immplugin."+org)
 	if err != nil {
 		return err
 	}
@@ -1102,24 +1064,13 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						},
 						{
 							Name: "imm-pluginsrv",
-							Image: pullRegAddr + immutil.ImmSrvImg,
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name: "vol1",
-									MountPath: "/var/lib/immplugin",
-									SubPath: immutil.ImmsrvHostname+"."+org+immutil.ImmsrvExpDir+"/immplugin",
-								},
-								{
-									Name: "immplugin-config-vol",
-									MountPath: "/work",
-								},
-							},
+							Image: pullRegAddr + immutil.ImmPluginSrvImg,
 							Env: []corev1.EnvVar{
 								{ Name: "IMMS_ORG", Value: org, },
 							},
-							Command: []string{"/var/lib/immplugin/immpluginsrv"},
+							Command: []string{"/var/lib/immpluginsrv"},
 							StartupProbe: &corev1.Probe{
-								Handler:  corev1.Handler{
+								ProbeHandler:  corev1.ProbeHandler{
 									TCPSocket: &corev1.TCPSocketAction{
 										Port: intstr.IntOrString{
 											Type: intstr.Int,
@@ -1131,6 +1082,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								PeriodSeconds: int32(15),
 								FailureThreshold: int32(20),
 							},
+							ImagePullPolicy: corev1.PullAlways,
 						},
 					},
 				},

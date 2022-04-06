@@ -26,6 +26,8 @@ import (
 const (
 	TmplDir = "/var/lib/ImmutableST/tmpl"
 	VolBaseDir = "/var/lib/ImmutableST/org"
+	ImmPluginDir = "/var/lib/ImmutableST/immplugin"
+	
 	CAHostname = "ca"
 	HttpdHostname = "www"
 	ImmsrvHostname = "immsrv"
@@ -44,10 +46,9 @@ const (
 	ImmSrvImg = "library/ubuntu:20.04"
 	EnvoyImg = "envoyproxy/envoy:v1.14.6"
 
-	ContBuildBaseImg = "library/golang:1.17.6"
-	ContBuildImg = "golang:contbuilder"
-	ContRuntimeImg = "ubuntu:runtime"
-	
+	ContRuntimeBaseImg = "library/ubuntu:20.04"
+	ContRuntimeImg = "immplugin:runtime1"
+	ImmPluginSrvImg = "immpluginsrv:1"
 
 	configYaml = "config.yaml"
 

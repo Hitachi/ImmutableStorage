@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	
 	"fmt"
-	"os"
 	"context"
 	
 	"immutil"
@@ -102,44 +101,4 @@ volumes = [
 ]
 `
 	return str
-}
-
-func createPluginConfig(configName string) (retErr error) {
-	buildImgData, err := os.ReadFile(chaincodePath)
-	if err != nil {
-		retErr = fmt.Errorf("failed to read a Dockerfile: %s", err)
-		return
-	}
-
-	runtimeImgData, err := os.ReadFile(runtimeDockerfile)
-	if err != nil {
-		retErr = fmt.Errorf("failed to read a Dockerfile: %s", err)
-		return
-	}
-	
-	configMapCli, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		retErr = err
-		return 
-	}
-
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: configName,
-			Labels: map[string] string {
-				"config": "immplugin",
-			},
-		},
-		BinaryData: map[string][]byte{
-			"buildImg.tar.gz": buildImgData,
-			"runtimeImg.tar.gz": runtimeImgData,
-		},
-	}
-
-	_, err = configMapCli.Create(context.TODO(), configMap, metav1.CreateOptions{})
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a ConfigMap for the PodmanInPodman: %s\n", err)
-		return
-	}
-	return // success
 }

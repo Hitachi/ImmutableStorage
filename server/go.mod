@@ -46,7 +46,7 @@ require (
 	go.uber.org/zap v1.20.0 // indirect
 	golang.org/x/crypto v0.0.0-20220112180741-5e0467b6c7ce // indirect
 	golang.org/x/net v0.0.0-20220114011407-0dd24b26b47d // indirect
-	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
+	golang.org/x/oauth2 v0.0.0-20210819190943-2bc19b11175f
 	google.golang.org/grpc v1.43.0
 	gopkg.in/yaml.v2 v2.4.0
 	immclient v0.0.0-00010101000000-000000000000
@@ -55,8 +55,9 @@ require (
 	immsign v0.0.0-00010101000000-000000000000
 	immutil v0.0.0-00010101000000-000000000000
 	jpkicli v0.0.0-00010101000000-000000000000
-	k8s.io/api v0.20.6
-	k8s.io/apimachinery v0.20.6
+	k8s.io/api v0.23.4
+	k8s.io/apimachinery v0.23.4
+	k8s.io/client-go v0.23.4 // indirect
 )
 
 replace fabconf => ./fabconf

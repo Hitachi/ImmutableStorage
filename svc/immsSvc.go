@@ -29,8 +29,8 @@ import (
 )
 
 func main() {
-	if reexec.Init() { // execute docker-untar command
-		// never reach here
+	if reexec.Init() { // execute docker-untar, etc
+		return
 	}
 	
 	if len(os.Args) < 2 {

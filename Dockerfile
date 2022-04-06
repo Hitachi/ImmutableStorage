@@ -5,7 +5,7 @@ RUN mkdir -p /var/lib/ImmutableST/bin
 COPY ./tmpl /var/lib/ImmutableST/tmpl
 WORKDIR /var/lib/ImmutableST/bin
 COPY svc/immsSvc ./
-COPY script/imms.sh ./
+COPY script/imms.sh script/remount_cgroup.sh ./
 
 RUN mkdir -p /var/lib/ImmutableST/tmpl/httpd/html
 WORKDIR /var/lib/ImmutableST/tmpl/httpd/html
@@ -14,18 +14,24 @@ COPY ./web/immex/immex.wasm.br ./web/immex/immex.wasm.gz ./
 COPY ./web/oauth/enrolluser.wasm.br ./web/oauth/enrolluser.wasm.gz ./
 COPY ./app/secretBallot/secretBallot.html ./app/secretBallot/secretballot.wasm.br ./app/secretBallot/secretballot.wasm.gz ./
 
-RUN mkdir -p /var/lib/ImmutableST/tmpl/immsrv/immplugin
 WORKDIR /var/lib/ImmutableST/tmpl/immsrv
 COPY ./server/immsrv ./
 COPY ./chaincode/hlRsyslog.tar.gz ./hlRsyslog
+
+RUN mkdir -p /var/lib/ImmutableST/immplugin
+WORKDIR /var/lib/ImmutableST/immplugin
 COPY ./chaincode/runtimeImg/runtimeImg.tar.gz ./
-COPY ./server/immpluginsrv/immpluginsrv ./immplugin/
+COPY ./server/immpluginsrv/immpluginsrv ./
 
 RUN mkdir -p /var/lib/ImmutableST/org
 
-RUN apt-get update && apt-get install -y cpio  \
-    && apt-get install -y ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update
+RUN apt-get install -y cpio
+RUN apt-get install -y ca-certificates
+RUN apt-get install -y libdevmapper1.02.1
+RUN apt-get install -y runc
+RUN apt-get install -y iptables
+RUN rm -rf /var/lib/apt/lists/*
 
 CMD ["/var/lib/ImmutableST/bin/imms.sh", "start"]
 WORKDIR /var/lib/ImmutableST/bin
