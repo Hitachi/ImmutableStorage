@@ -1067,6 +1067,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							Image: pullRegAddr + immutil.ImmPluginSrvImg,
 							Env: []corev1.EnvVar{
 								{ Name: "IMMS_ORG", Value: org, },
+								{ Name: "IMMS_POD_NAME", Value: podName, },
 							},
 							Command: []string{"/var/lib/immpluginsrv"},
 							StartupProbe: &corev1.Probe{

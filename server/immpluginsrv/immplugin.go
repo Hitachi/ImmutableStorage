@@ -43,6 +43,7 @@ const (
 
 type server struct{
 	org string
+	podName string
 }
 
 type InstanceValue struct {
@@ -170,9 +171,10 @@ func (s *server) validateUser(cert *x509.Certificate, funcName string) error {
 func main() {
 	immpluginsrv := &server{
 		org: os.Getenv("IMMS_ORG"),
+		podName: os.Getenv("IMMS_POD_NAME"),
 	}
 	
-	err := initPodInPod(immpluginsrv.org)
+	err := initPodInPod(immpluginsrv.podName)
 	if err != nil {
 		log.Fatalf("%s\n", err)
 	}
@@ -181,7 +183,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %s\n", err)
 	}
-
 	
 	s := grpc.NewServer()
 	immplugin.RegisterImmPluginServer(s, immpluginsrv)
