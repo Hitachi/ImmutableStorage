@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"context"
 	"time"
 	"fmt"
@@ -29,7 +31,7 @@ import (
 	"immutil"
 )
 
-func initPodInPod(org string) (retErr error) {
+func initPodInPod(podName string) (retErr error) {
 	dockerClient, err := dclient.NewClientWithOpts(dclient.WithHost("http://localhost:2376"))
 	if err != nil {
 		retErr = fmt.Errorf("failed to create podman client: %s\n", err)
@@ -95,6 +97,16 @@ func initPodInPod(org string) (retErr error) {
 	err = jsonmessage.DisplayJSONMessagesStream(rsp.Body, os.Stdout, os.Stdout.Fd(), false, nil)
 	if err != nil {
 		retErr = fmt.Errorf("failed to load images: %s", err)
+		return
+	}
+
+	buildImgTag := "dev-" /*networkID*/ + podName + "-hlRsyslog-5.0" /*Chaincode Name*/
+	digest := sha256.Sum256([]byte(buildImgTag))
+	digestStr := hex.EncodeToString(digest[:])
+	buildImgTag = "dev-" + podName + "-hlrsyslog-5.0-" + digestStr
+	err = dockerClient.ImageTag(context.Background(), immutil.ContRuntimeImg, buildImgTag)
+	if err != nil {
+		retErr = fmt.Errorf("failed to tag %s: %s\n", immutil.ContRuntimeImg, err)
 		return
 	}
 	
