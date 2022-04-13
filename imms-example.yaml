@@ -31,7 +31,7 @@ spec:
     imagePullPolicy: IfNotPresent
     name: imms
     # SYS_ADMIN is required for the program to mount the overlay2.
-    # NET_ADMIN is for the image builder to create the docker bridge network.
+    # NET_ADMIN is required for the image builder to create the docker bridge network.
     securityContext:
       capabilities:
         add: ["SYS_ADMIN", "NET_ADMIN"]
