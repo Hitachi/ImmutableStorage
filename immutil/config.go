@@ -39,10 +39,8 @@ const (
 	OrdererImg = "hyperledger/fabric-orderer:1.4.11"
 	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.22"
 	PeerImg = "hyperledger/fabric-peer:1.4.11"
-	DockerImg = "quay.io/podman/stable:v3.4.4"
 	
 	ImmHttpdImg = "library/httpd:2.4.46"
-
 	ImmSrvImg = "library/ubuntu:20.04"
 	EnvoyImg = "envoyproxy/envoy:v1.14.6"
 

@@ -30,6 +30,7 @@ import (
 	"errors"
 	"os"
 	"net"
+	"syscall"
 	
 	"immplugin"
 	"immutil"
@@ -38,7 +39,7 @@ import (
 )
 
 const (
-	port = ":50052"
+	pluginSock = "/run/immplugin.sock"
 )
 
 type server struct{
@@ -174,12 +175,9 @@ func main() {
 		podName: os.Getenv("IMMS_POD_NAME"),
 	}
 	
-	err := initPodInPod(immpluginsrv.podName)
-	if err != nil {
-		log.Fatalf("%s\n", err)
-	}
+	initPluginExecutor(immpluginsrv.podName)
 	
-	lis, err := net.Listen("tcp", port)
+	lis, err := net.Listen("unix", pluginSock)
 	if err != nil {
 		log.Fatalf("failed to listen: %s\n", err)
 	}
@@ -188,6 +186,8 @@ func main() {
 	immplugin.RegisterImmPluginServer(s, immpluginsrv)
 	reflection.Register(s)
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to start server: %v", err)
+		log.Printf("failed to start server: %v", err)
 	}
+
+	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 }
