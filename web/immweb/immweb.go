@@ -1897,7 +1897,7 @@ func makeJoinChannelBoxContent() (resultBox, okBtn js.Value) {
 	html := `<div class="passReqArea">`
 	html += `  <div class="immDSBtn">`
 	html += `    <p id="joinChannelResult">Join task is in progress</p>`
-	html += `    <button onclick="reqBoxOk(event, 'confirmMsg')" id="reqBoxOkBtn" hidden>Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, 'confirmMsg')" id="reqBoxOkBtn" hidden>OK</button>`
 	html += `  </div>`
 	html += `</div>`
 
@@ -2026,6 +2026,17 @@ func enableChannel(this js.Value, in []js.Value) interface{} {
 			print("log: " + err.Error() + "\n")
 			return
 		}
+
+		for i := 0; i < 3; i++ {
+			chainCodes, err := id.ListChainCode(url, chName)
+			if err == nil && len(chainCodes) > 0 {
+				break
+			}
+			if err != nil {
+				print("log: listChaincode: error=" + err.Error() + "\n")
+			}
+			time.Sleep(time.Second)
+		}
 	}()
 
 	return nil
@@ -2038,7 +2049,7 @@ func makeEnableChannelBoxContent() (resultBox, okBtn js.Value) {
 	html := `<div class="passReqArea">`
 	html += `  <div class="immDSBtn">`
 	html += `    <p id="enableChannelResult">Enabling storage is in progress</p>`
-	html += `    <button onclick="reqBoxOk(event, 'confirmEnChMsg')" id="reqBoxOkBtn" hidden>Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, 'confirmEnChMsg')" id="reqBoxOkBtn" hidden>OK</button>`
 	html += `  </div>`
 	html += `</div>`
 
@@ -2266,7 +2277,7 @@ func makeRemoveIdBoxContent(userName string) {
 	html := `<div class="passReqArea">`
 	html += `  <label>Are you sure you want to remove ` + userName + `?</label>`
 	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'removeId')" id="reqBoxOkBtn" name="` + userName+ `">Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, 'removeId')" id="reqBoxOkBtn" name="` + userName+ `">OK</button>`
 	html += `    <button onclick="reqBoxCancel(event, 'removeId')" id="reqBoxCancelBtn">Cancel</button>`
 	html += `    <p id="removeIdResult"></p>`
 	html += `  </div>`
@@ -2319,7 +2330,7 @@ func makeRevokeIdBoxContent(userName string) {
 	html := `<div class="passReqArea">`
 	html += `  <label>Are you sure you want to revoke ` + userName + `?</label>`
 	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'revokeId')" id="reqBoxOkBtn" name="` + userName+ `">Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, 'revokeId')" id="reqBoxOkBtn" name="` + userName+ `">OK</button>`
 	html += `    <button onclick="reqBoxCancel(event, 'revokeId')" id="reqBoxCancelBtn">Cancel</button>`
 	html += `    <p id="cryptResult"></p>`
 	html += `  </div>`
@@ -2375,7 +2386,7 @@ func makeChangeSecretBoxContent(userName string) {
 	html += `  <label>Please enter new secret:</label>`
 	html += `  <input type="text" id="changeSecretText" value="` + newSecret + `">`
 	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'changeSecret')" id="reqBoxOkBtn" name="` + userName + `">Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, 'changeSecret')" id="reqBoxOkBtn" name="` + userName + `">OK</button>`
 	html += `    <button onclick="reqBoxCancel(event, 'changeSecret')" id="reqBoxCancelBtn">Cancel</button>`
 	html += `    <p id="changeSecretResult"></p>`
 	html += `  </div>`
@@ -2481,7 +2492,7 @@ func makeReqBoxContent(reqStr string) {
 	html += `  <label>Please enter ` + userName + `'s password</label>`
 	html += `  <input type="password" id="keyPassword">`
 	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, '` + reqStr + `')" id="reqBoxOkBtn">Ok</button>`
+	html += `    <button onclick="reqBoxOk(event, '` + reqStr + `')" id="reqBoxOkBtn">OK</button>`
 	html += `    <button onclick="reqBoxCancel(event, '` + reqStr + `')" id="reqBoxCancelBtn">Cancel</button>`
 	html += `    <p id="cryptResult"></p>`
 	html += `  </div>`
