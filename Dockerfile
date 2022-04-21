@@ -20,7 +20,7 @@ COPY ./chaincode/hlRsyslog.tar.gz ./hlRsyslog
 
 RUN mkdir -p /var/lib/ImmutableST/immplugin
 WORKDIR /var/lib/ImmutableST/immplugin
-COPY ./chaincode/runtimeImg/runtimeImg.tar.gz ./
+COPY ./chaincode/hlRsyslog/go/hlRsyslog ./
 COPY ./server/immpluginsrv/immpluginsrv ./
 
 RUN mkdir -p /var/lib/ImmutableST/org
@@ -30,7 +30,6 @@ RUN apt-get install -y cpio
 RUN apt-get install -y ca-certificates
 RUN apt-get install -y libdevmapper1.02.1
 RUN apt-get install -y runc
-RUN apt-get install -y iptables
 RUN rm -rf /var/lib/apt/lists/*
 
 CMD ["/var/lib/ImmutableST/bin/imms.sh", "start"]

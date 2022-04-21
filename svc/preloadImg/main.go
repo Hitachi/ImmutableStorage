@@ -48,21 +48,15 @@ import (
 	"github.com/moby/buildkit/util/resolver"
 	"github.com/docker/docker/daemon/config"	
 	"github.com/docker/docker/libnetwork"
-	"github.com/docker/docker/libnetwork/netlabel"
-	"github.com/docker/docker/libnetwork/drivers/bridge"
 	netconfig "github.com/docker/docker/libnetwork/config"
-	"github.com/docker/docker/libnetwork/options"
-	"github.com/vishvananda/netlink"
 	
 	"go.etcd.io/bbolt"
 
 	"archive/tar"
-	"compress/gzip"
 	"fmt"
 	"os"
 	"io"
 	"context"
-	"bytes"
 
 	"immutil"
 )
@@ -78,7 +72,6 @@ func Main(args []string) {
 		immutil.OrdererImg: { false, DOCKER_IO_REPO },
 		immutil.CouchDBImg: { false, DOCKER_IO_REPO },
 		immutil.PeerImg: { false, DOCKER_IO_REPO },
-		immutil.DockerImg: { false, ""},
 		immutil.ImmHttpdImg: { false, DOCKER_IO_REPO },
 		immutil.ImmSrvImg: { false, DOCKER_IO_REPO },
 		immutil.EnvoyImg: { false, DOCKER_IO_REPO },
@@ -329,18 +322,8 @@ func initImgBuilder(imgSvc *images.ImageService) (builder *buildernext.Builder, 
 	netOptions := []netconfig.Option{}
 	netOptions = append(netOptions, netconfig.OptionDataDir(baseDir))
 	netOptions = append(netOptions, netconfig.OptionExecRoot("/var/lib/docker")) // not rootless
-	netOptions = append(netOptions, netconfig.OptionDefaultDriver("bridge"))
-	netOptions = append(netOptions, netconfig.OptionDefaultNetwork("bridge"))
-	netOptions = append(netOptions, netconfig.OptionNetworkControlPlaneMTU(1500))
-
-	bridgeConfig := options.Generic{
-		"EnableIPForwarding": true,
-		"EnableIPTables": true,
-		"EnableUserlandProxy": true,
-	}
-	
-	bridgeOptions := options.Generic{netlabel.GenericData: bridgeConfig}
-	netOptions = append(netOptions, netconfig.OptionDriverConfig("bridge", bridgeOptions))
+	netOptions = append(netOptions, netconfig.OptionDefaultDriver("host"))
+	netOptions = append(netOptions, netconfig.OptionDefaultNetwork("host"))
 
 	controller, err := libnetwork.New(netOptions...)
 	if err != nil {
@@ -348,46 +331,13 @@ func initImgBuilder(imgSvc *images.ImageService) (builder *buildernext.Builder, 
 		return
 	}
 
-	net, err := controller.NetworkByName("bridge")
-	if net != nil {
-		err = net.Delete()
+	net, _ := controller.NetworkByName("host")
+	if net == nil {
+		_, err := controller.NewNetwork("host", "host", "", libnetwork.NetworkOptionPersist(true))
 		if err != nil {
-			retErr = fmt.Errorf("failed to delete the default bridge network: %s", err)
+			retErr = fmt.Errorf("failed to create the default host network: %s", err)
 			return
 		}
-		
-		link, err := netlink.LinkByName(bridge.DefaultBridgeName)
-		if err == nil {
-			err = netlink.LinkDel(link)
-			if err != nil {
-				retErr = fmt.Errorf("failed to delete bridge interface (%s): %s", bridge.DefaultBridgeName, err)
-				return
-			}
-		}
-	}
-
-		netOption := map[string]string{
-		bridge.BridgeName: bridge.DefaultBridgeName,
-		bridge.DefaultBridge: "true",
-		netlabel.DriverMTU: "1500",
-		bridge.EnableIPMasquerade: "true",
-		bridge.EnableICC: "true",
-	}
-
-	ipamV4Conf := &libnetwork.IpamConf{AuxAddresses: make(map[string]string)}
-	ipamV4Conf.PreferredPool = "172.17.0.0/16"
-	ipamV4Conf.Gateway = "172.17.0.1"
-	v4Conf := []*libnetwork.IpamConf{ipamV4Conf}
-	v6Conf := []*libnetwork.IpamConf{}
-	
-	_, err = controller.NewNetwork("bridge", "bridge", "",
-		libnetwork.NetworkOptionEnableIPv6(false),
-		libnetwork.NetworkOptionDriverOpts(netOption),
-		libnetwork.NetworkOptionIpam("default", "", v4Conf, v6Conf, nil),
-		libnetwork.NetworkOptionDeferIPv6Alloc(false))
-	if err != nil {
-		retErr = fmt.Errorf("failed to create default bridge network: %s", err)
-		return
 	}
 	
 	builder, err = buildernext.New(buildernext.Opt{
@@ -429,6 +379,7 @@ func buildImg(builder *buildernext.Builder, src io.ReadCloser, srcSize int64, ta
 				Dockerfile: "Dockerfile",
 				Version: types.BuilderBuildKit,
 				Tags: []string{tag, },
+				NetworkMode: "host",
 			},
 			ProgressWriter: backend.ProgressWriter{
 				Output: resultW,
@@ -469,36 +420,10 @@ func buildImmPluginImg(imgSvc *images.ImageService, regAddr string, plat *specs.
 		return fmt.Errorf("failed to create a builder: %s", err)
 	}
 
-	srcRunImg, err := os.OpenFile(immutil.ImmPluginDir+"/runtimeImg.tar.gz", os.O_RDONLY, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to open a file: %s", err)
-	}
-
-	srcRunImgInfo, err := srcRunImg.Stat()
-	if err != nil {
-		return  fmt.Errorf("could not get the file length: %s", err)
-	}
-	
-	err = buildImg(builder, srcRunImg, srcRunImgInfo.Size(), immutil.ContRuntimeImg, resultW)
-	if err != nil {
-		return fmt.Errorf("failed to build a plugin image: %s", err)
-	}
-
-	var tarBuf bytes.Buffer
-	err = imgSvc.ExportImage([]string{immutil.ContRuntimeImg,}, &tarBuf)
-	if err != nil {
-		return fmt.Errorf("could not get a plugin image from the image service: %s", err)
-	}
-
-	var gzipBuf bytes.Buffer
-	zipwriter := gzip.NewWriter(&gzipBuf)
-	zipwriter.Write(tarBuf.Bytes())
-	zipwriter.Close()
-
 	dockerfileStr := `
 FROM ` + baseImgName+`
 WORKDIR /var/lib
-COPY ./runtime.tar.gz ./
+COPY ./hlRsyslog ./
 COPY ./immpluginsrv ./
 `
 	dockerfile := []byte(dockerfileStr)
@@ -507,16 +432,25 @@ COPY ./immpluginsrv ./
 	if err != nil {
 		return fmt.Errorf("could not open the immpluginsrv file: %s", err)
 	}
-	
 	srcPluginSrv, err := io.ReadAll(srcPluginSrvFile)
 	if err != nil {
 		return fmt.Errorf("failed to read the immpluginsrv flie: %s", err)
 	}
+
+	srcPluginCmdFile, err := os.OpenFile(immutil.ImmPluginDir+"/hlRsyslog", os.O_RDONLY, 0755)
+	if err != nil {
+		return fmt.Errorf("could not open the plugin command file: %s", err)
+	}
+	srcPluginCmd, err := io.ReadAll(srcPluginCmdFile)
+	if err != nil {
+		return fmt.Errorf("failed to read the plugin command file: %s", err)
+	}
+	
 	
 	tarData := []immutil.TarData{
 		{&tar.Header{ Name: "Dockerfile", Mode: 0444, Size: int64(len(dockerfile)), }, dockerfile },
-		{&tar.Header{ Name: "immpluginsrv", Mode: 0775, Size: int64(len(srcPluginSrv)), }, srcPluginSrv },
-		{&tar.Header{ Name: "runtime.tar.gz", Mode: 0664, Size: int64(gzipBuf.Len()), }, gzipBuf.Bytes() },
+		{&tar.Header{ Name: "immpluginsrv", Mode: 0755, Size: int64(len(srcPluginSrv)), }, srcPluginSrv },
+		{&tar.Header{ Name: "hlRsyslog", Mode: 0755, Size: int64(len(srcPluginCmd)), }, srcPluginCmd },
 	}
 	pluginSrc, err := immutil.GetTarBuf(tarData)
 	if err != nil {

@@ -86,15 +86,11 @@ const (
 	certPath = "/var/lib/immsrv/keys/server.crt"
 	privPath = "/var/lib/immsrv/keys/server.key"
 
-	//	dockerNetPrefix = "net_hfl_"
-
 	couchdbHostPrefix = "couchdb"
 
 	hostKeyDir = "key"
 	hostConfDir = "conf"
 	hostDataDir = "/data"
-	contDockerVarDir = "/home/podman/.local/share/containers"
-	contDockerConfDir = "/home/podman/.config/containers"
 	
 	fabDefaultConfDir = "/etc/hyperledger/fabric"
 	certsTarDir = "/var/lib/certs"
@@ -111,6 +107,7 @@ const (
 	chaincodePath = "/var/lib/immsrv/hlRsyslog"
 	defaultCCName = "hlRsyslog"
 	runtimeDockerfile = "/var/lib/immsrv/runtimeImg.tar.gz"
+	pluginSock = "/run/immplugin.sock"
 
 	clearMspCmd = "rm -rf "+fabDefaultConfDir+"/msp"
 	cpKeyCmd = "tar xf "+certsTarDir+"/keys.tar -C "+fabDefaultConfDir
@@ -427,7 +424,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 		return
 	}
 
-	fmt.Printf("log: CreateService")
+	log.Printf("CreateService")
 	
 	userName := uCert.Subject.CommonName
 	host := cert.Subject.CommonName
@@ -728,7 +725,7 @@ func startOrderer(serviceName string) error {
 	if err != nil {
 		return fmt.Errorf("Could not create a container in a pod: %s\n", err)
 	}
-	fmt.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
+	log.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
 
 		
 	// create a service
@@ -770,7 +767,7 @@ func startOrderer(serviceName string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
+	log.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
 	
 	return nil
 }
@@ -851,12 +848,6 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 		return fmt.Errorf("failed to create a ConfigMap for couchDB environment variable: " + err.Error())
 	}
 
-	localReg, _ := immutil.GetLocalRegistryAddr()
-	err = createPodmanConfig("podman."+org, localReg)
-	if err != nil {
-		return err
-	}
-
 	return nil // success
 }
 
@@ -916,19 +907,11 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		return
 	}
 
-	//podmanCmd := []string{"podman", "system", "service", "--time=0", "--log-level=debug", "tcp:localhost:2376"}
-	podmanCmd := []string{"sh", "-c", `PODPID=0; while true; do STATUS=$(podman container ls --filter name=.*hlRsyslog* --filter status=running --format '{{.Status}}'); if [ $PODPID = 0 ] && [ -z "$STATUS" ]; then podman system service -t=0 --log-level=debug tcp:localhost:2376& PODPID=$!; fi; if [ $PODPID != 0 ] && [ -n "$STATUS" ]; then kill -KILL $PODPID; PODPID=0; fi; if [ $PODPID != 0 ] && [ -z "$STATUS" ] && [ ! -f /proc/$PODPID/status ]; then PODPID=0; fi; sleep 60; done`} // workaround script for podman busy loop
-	
 	repn := int32(1)
-	privilegedF := bool(true)
-	podmanUID := int64(1000)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: podName,
-			Annotations: map[string] string{
-				corev1.AppArmorBetaContainerAnnotationKeyPrefix+"podman-plugin": corev1.AppArmorBetaProfileNameUnconfined,
-			},
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas:&repn,
@@ -957,40 +940,6 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								},
 							},
 						},
-						{
-							Name: "podman-config-vol",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "podman." + org,
-									},
-								},	
-							},
-						},
-						{
-							Name: "podman-vol1",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{
-								},
-							},
-						},
-						{
-							Name: "podman-vol2",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{
-								},
-							},
-						},
-						{
-							Name: "immplugin-config-vol",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "immplugin." + org,
-									},
-								},	
-							},							
-						},
 					},
 					Hostname: shortName,
 					Subdomain: immutil.K8sSubDomain,
@@ -998,6 +947,9 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						Options: []corev1.PodDNSConfigOption{
 							{ Name: "ndots", Value: &ndots },
 						},
+					},
+					HostAliases: []corev1.HostAlias{
+						{ IP: "127.0.0.1", Hostnames: []string{podName, }, },
 					},
 					Containers: []corev1.Container{
 						{
@@ -1037,32 +989,6 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							},
 						},
 						{
-							Name: "podman-plugin",
-							Image: pullRegAddr + immutil.DockerImg,
-							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "podman-vol1", MountPath: contDockerVarDir, },
-								{ Name: "podman-vol2", MountPath: "/home/podman/.config/cni", },
-								{ Name: "podman-config-vol",
-									MountPath: contDockerConfDir+"/"+"storage.conf", SubPath: "storage.conf", },
-								{ Name: "podman-config-vol",
-									MountPath: contDockerConfDir+"/"+"registries.conf", SubPath: "registries.conf", },
-								{ Name: "podman-config-vol",
-									MountPath: contDockerConfDir+"/"+"containers.conf", SubPath: "containers.conf", },
-								{ Name: "podman-config-vol", MountPath: "/etc/subuid", SubPath: "subuid", },
-								{ Name: "podman-config-vol", MountPath: "/etc/subgid", SubPath: "subgid", },
-							},
-							Command: podmanCmd,
-							SecurityContext: &corev1.SecurityContext{
-								//Capabilities: &corev1.Capabilities{
-								//	Add: []Capability{
-								//		"SYS_ADMIN",
-								//	},
-								//},
-								Privileged: &privilegedF,
-								RunAsUser: &podmanUID,
-							},
-						},
-						{
 							Name: "imm-pluginsrv",
 							Image: pullRegAddr + immutil.ImmPluginSrvImg,
 							Env: []corev1.EnvVar{
@@ -1072,15 +998,12 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 							Command: []string{"/var/lib/immpluginsrv"},
 							StartupProbe: &corev1.Probe{
 								ProbeHandler:  corev1.ProbeHandler{
-									TCPSocket: &corev1.TCPSocketAction{
-										Port: intstr.IntOrString{
-											Type: intstr.Int,
-											IntVal: 50052,
-										},
+									Exec: &corev1.ExecAction{
+										Command: []string{"test", "-S", pluginSock},
 									},
 								},
-								InitialDelaySeconds: int32(10),
-								PeriodSeconds: int32(15),
+								InitialDelaySeconds: int32(5),
+								PeriodSeconds: int32(3),
 								FailureThreshold: int32(20),
 							},
 							ImagePullPolicy: corev1.PullAlways,
@@ -1115,14 +1038,6 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						IntVal: 7051,
 					},
 				},
-				corev1.ServicePort{
-					Name: "chaincode",
-					Port: 7052,
-					TargetPort: intstr.IntOrString{
-						Type: intstr.Int,
-						IntVal: 7052,
-					},
-				},
 			},
 		},
 	}
@@ -1143,7 +1058,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		retErr = fmt.Errorf("failed to create a service for a peer: %s", err)
 		return
 	}
-	fmt.Printf("Create service %q\n", resultSvc.GetObjectMeta().GetName())
+	log.Printf("Create service %q\n", resultSvc.GetObjectMeta().GetName())
 
 	resourceVersion = createdDep.GetObjectMeta().GetResourceVersion()
 	return
@@ -2094,7 +2009,7 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 			
 			if gstatus.Code(err) == codes.Unavailable {
 				time.Sleep(5*time.Second) // sleep 5s
-				fmt.Printf("retry process proposal\n")
+				log.Printf("retry process proposal\n")
 				continue // retry
 			}
 
@@ -2115,7 +2030,7 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 
 		writeChannelConf(storageHost, chConf)
 
-		fmt.Printf("Successfully submitted proposal to join channel\n")
+		log.Printf("Successfully submitted proposal to join channel\n")
 		signer.err <- nil
 		return
 	}()
@@ -2471,15 +2386,15 @@ func (s *server) SendSignedPropOrderer(ctx context.Context, req *immop.PropReq) 
 		}
 
 		caTlsCertRaw := []byte(chConf.OrdererTlsCACert)
+		caTlsCert, _, err := immutil.ReadCertificate(caTlsCertRaw)
 		if err != nil {
 			signer.err <- fmt.Errorf("could not read a certificate: " + err.Error())
 			return
 		}
-		
-		caTlsCert, _, err := immutil.ReadCertificate(caTlsCertRaw)
 		certPool := x509.NewCertPool()
 		certPool.AddCert(caTlsCert)
 		creds := credentials.NewClientTLSFromCert(certPool, "")
+		log.Printf("connect to %s\n", chConf.OrdererHost)
 		conn, err := grpc.Dial(chConf.OrdererHost, grpc.WithTransportCredentials(creds), grpc.WithBlock())
 		if err != nil {
 			signer.err <- fmt.Errorf("could not connect to orderer: %s", err)
@@ -2502,12 +2417,13 @@ func (s *server) SendSignedPropOrderer(ctx context.Context, req *immop.PropReq) 
 			}
 			
 			signer.err <- err
+			return
 		}
 
 		err = ordererClient.Send(envelope)
 		err2 := <- eventCh
 		if signer.state != 2 {
-			fmt.Printf("log: unexpected state: %d", signer.state)
+			log.Printf("unexpected state: %d\n", signer.state)
 			return
 		}
 
@@ -2518,12 +2434,11 @@ func (s *server) SendSignedPropOrderer(ctx context.Context, req *immop.PropReq) 
 
 		ordererRsp, err := ordererClient.Recv()
 		if err != nil || ordererRsp.Status != common.Status_SUCCESS {
-			fmt.Printf("log: failed to boradcast: status = %s err=%s\n", ordererRsp.Status.String(), err)
+			log.Printf("failed to boradcast: status = %s err=%s\n", ordererRsp.Status.String(), err)
 			ordererClient.CloseSend()
 			signer.err <- err
 			return
 		}
-		//		fmt.Printf("log: status=%s\n", ordererRsp.Status.String())
 		
 		err = ordererClient.CloseSend()
 		if err == nil {
@@ -2703,7 +2618,7 @@ func (signer *signerState) eventHandler(eventCh chan error, chConf *channelConf,
 				}
 
 				if chHdr.TxId == TxId {
-					fmt.Printf("log: got an event ( TxId=0x%x )\n", TxId)
+					log.Printf("got an event ( TxId=0x%x )\n", TxId)
 					eventCh <- nil
 					return
 				}
@@ -2732,7 +2647,7 @@ func sendProcessProp(proposal, signature []byte, conn *grpc.ClientConn) (*pp.Pro
 		return nil, fmt.Errorf("bad proposal response %d: %s", propRsp.Response.Status, propRsp.Response.Message)
 	}
 	
-	fmt.Printf("Successfully submitted proposal\n")
+	log.Printf("Successfully submitted proposal\n")
 	return propRsp, nil
 }
 
@@ -3138,8 +3053,8 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 			return
 		}
 
-		fmt.Printf("payload:\n%s\n", hex.Dump(propRsp.Payload))
-		fmt.Printf("response.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
+		log.Printf("payload:\n%s\n", hex.Dump(propRsp.Payload))
+		log.Printf("response.payload:\n%s\n", hex.Dump(propRsp.Response.Payload))
 
 		queryRsp := &pp.ChaincodeQueryResponse{}
 		err = proto.Unmarshal(propRsp.Response.Payload, queryRsp)
