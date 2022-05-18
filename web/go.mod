@@ -1,4 +1,4 @@
-module  immDS.wasm
+module immDS.wasm
 
 go 1.14
 
@@ -13,6 +13,7 @@ require (
 	github.com/fsouza/go-dockerclient v1.3.6 // indirect
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/hyperledger/fabric v1.4.7 // indirect
+	github.com/miekg/pkcs11 v1.1.1 // indirect
 	github.com/mitchellh/mapstructure v1.3.2 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
 	github.com/sykesm/zap-logfmt v0.0.3 // indirect
@@ -21,9 +22,15 @@ require (
 	immclient v0.0.0-00010101000000-000000000000 // indirect
 	immop v0.0.0-00010101000000-000000000000 // indirect
 	immweb v0.0.0-00010101000000-000000000000
+	webcli v0.0.0-00010101000000-000000000000 // indirect
 	websto v0.0.0-00010101000000-000000000000 // indirect
+	webutil v0.0.0-00010101000000-000000000000 // indirect
 )
 
 replace websto => ./websto
 
 replace immclient => ./immclient
+
+replace webutil => ./webutil
+
+replace webcli => ./webcli
