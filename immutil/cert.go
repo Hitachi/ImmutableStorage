@@ -41,6 +41,9 @@ const (
 	cfgMapFedGrp = "-fedgrp"
 
 	cmFedUserLabel = "federatedUser"
+	
+	ballotAuthTypeSuffix = ".ballot"
+	ballotRegType = "voterReg"
 )
 
 
@@ -409,6 +412,10 @@ func loadBaseCert(username, caName string) (baseCert *x509.Certificate, authType
 		authType = "LDAP"
 	}
 	
+	if strings.HasSuffix(authType, ballotAuthTypeSuffix) {
+		baseCert.Subject.OrganizationalUnit = []string{ballotRegType}
+	}
+	
 	return // success
 }
 
@@ -454,6 +461,9 @@ func listBaseCert(authType, caName string) (baseCerts []*x509.Certificate, retEr
 					OrganizationalUnit: []string{"client"},
 				},
 				AuthorityKeyId: id.AuthorityKeyId,
+			}
+			if strings.HasSuffix(id.AuthType, ballotAuthTypeSuffix) {
+				baseCert.Subject.OrganizationalUnit = []string{ballotRegType}
 			}
 
 			baseCerts = append(baseCerts, baseCert)
