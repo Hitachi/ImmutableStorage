@@ -88,7 +88,7 @@ func (s *server) DoPlugin(ctx context.Context, req *immplugin.DoPluginRequest) (
 
 	switch funcName {
 	case "addLog":
-		if len(req.Args) != 4 {
+		if len(req.Args) < 4 {
 			retErr = errors.New("Unexpected argument")
 			return
 		}
