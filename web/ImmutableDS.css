@@ -1,7 +1,7 @@
 
 body {font-family: Arial;}
 
-input[type=text], input[type=password], select, textarea {
+input[type=text], input[type=password], input[type=number], input[type=datetime-local], select, textarea {
     width: 90%;
     padding: 12px;
     border: 2px solid silver;
@@ -252,14 +252,6 @@ caption {
     /*padding-right: 10px*/
  }
 
-.mspid {
-    display: inline;
-}
-
-.mspid input[type=text] {
-    width: 10%;
-    display: inline;
-}
 .serviceCreateBtn {
     /*
     float: right;
@@ -371,17 +363,16 @@ caption {
     margin: 5px;
 }
 
-.date-input {
-    float: right;
-    margin-top: 6px;
-    width: 85%
+.listAppsArea a {
+    color: black;
+    font-weight: bold;
+    display: block;
+    border: 3px solid gray;
+    border-radius: 7px;
+    padding: 12px;
 }
 
-.date-input input {
-    width: 2.4em;
-    padding: 12px;
-    border: 2px solid silver;
-    border-radius: 4px;
-    resize: vertical;
-    font-size: 16px;
+.listAppsArea a:hover {
+    background-color: darkgray;
+    color: black;
 }
