@@ -507,6 +507,12 @@ func CountVotes(id *immclient.UserID, url string) (retErr error) {
 						candidateScore[i][j] += 1
 					}
 				}
+			case PAPER_METHOD_APPROVAL:
+				for j, candidate := range paper.Candidates {
+					if candidate.VoterInput == "approval" {
+						candidateScore[i][j] += 1
+					}
+				}				
 			case PAPER_METHOD_DISAPPROVAL:
 				for j, candidate := range paper.Candidates {
 					if candidate.VoterInput == "disapproval" {
@@ -518,6 +524,11 @@ func CountVotes(id *immclient.UserID, url string) (retErr error) {
 					tmpScore, _ := strconv.Atoi(candidate.VoterInput)
 					candidateScore[i][j] += tmpScore
 				}
+			case PAPER_METHOD_OPINION:
+				if len(paper.Option) < 2 {
+					continue
+				}
+				(*temps)[i].Option = append((*temps)[i].Option, paper.Option[1])
 			}
 		}
 	}
@@ -576,13 +587,16 @@ type Candidate struct {
 const (
 	PAPER_METHOD_RADIO = "radio" // select one candidate
 	PAPER_METHOD_DISAPPROVAL = "disapproval" // mark disapproval candidates
+	PAPER_METHOD_APPROVAL = "approval" // mark approval candidates
 	PAPER_METHOD_RANK = "rank" // rank candidates in numerical order
+	PAPER_METHOD_OPINION = "opinion" // for a suvery question
 )
 
 type Paper struct {
 	Description string
 	Method string
 	Candidates []Candidate
+	Option []string
 }
 
 func SetPaper(id *immclient.UserID, url string, papers *[]Paper) (retErr error) {

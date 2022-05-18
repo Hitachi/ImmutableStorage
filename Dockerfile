@@ -11,8 +11,11 @@ RUN mkdir -p /var/lib/ImmutableST/tmpl/httpd/html
 WORKDIR /var/lib/ImmutableST/tmpl/httpd/html
 COPY ./web/immDS.wasm.br ./web/immDS.wasm.gz ./web/ImmutableDS.css ./web/index.html ./web/wasm_exec.js ./
 COPY ./web/immex/immex.wasm.br ./web/immex/immex.wasm.gz ./
-COPY ./web/oauth/enrolluser.wasm.br ./web/oauth/enrolluser.wasm.gz ./
+COPY ./web/oauth/enrolluser.wasm.br ./web/oauth/enrolluser.wasm.gz ./web/oauth/enrolluser.wasm.gz ./
+
+COPY ./app/readWriteLog/readWriteLog.html ./app/readWriteLog/readWriteLog.wasm.br ./app/readWriteLog/readWriteLog.wasm.gz ./ 
 COPY ./app/secretBallot/secretBallot.html ./app/secretBallot/secretballot.wasm.br ./app/secretBallot/secretballot.wasm.gz ./
+COPY ./app/anonymousSurvey/anonymousSurvey.html ./app/anonymousSurvey/anonymoussurvey.wasm.br ./app/anonymousSurvey/anonymoussurvey.wasm.gz ./
 
 WORKDIR /var/lib/ImmutableST/tmpl/immsrv
 COPY ./server/immsrv ./
