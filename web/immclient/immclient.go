@@ -1635,7 +1635,7 @@ func (id *UserID) GetRole() string {
 	return GetRole(id.Cert)
 }
 
-func (id *UserID) GetRegRoles(url, username string) (roles []string) {
+func (id *UserID) GetRegRoles(url string) (roles []string) {
 	roles = []string{}
 	attrs, err := id.GetIdentity(url, id.Name)
 	if err != nil {
