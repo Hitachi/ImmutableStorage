@@ -252,14 +252,6 @@ caption {
     /*padding-right: 10px*/
  }
 
-.mspid {
-    display: inline;
-}
-
-.mspid input[type=text] {
-    width: 10%;
-    display: inline;
-}
 .serviceCreateBtn {
     /*
     float: right;
