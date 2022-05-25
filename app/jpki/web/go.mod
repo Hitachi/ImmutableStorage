@@ -19,8 +19,17 @@ require (
 	immclient v0.0.0-00010101000000-000000000000 // indirect
 	immop v0.0.0-00010101000000-000000000000 // indirect
 	jpkicli v0.0.0-00010101000000-000000000000 // indirect
+	webjpki v0.0.0-00010101000000-000000000000 // indirect
+	websto v0.0.0-00010101000000-000000000000 // indirect
+	webutil v0.0.0-00010101000000-000000000000 // indirect
 )
 
 replace immclient => ../../../web/immclient
+
+replace webjpki => ../../../web/webjpki
+
+replace webutil => ../../../web/webutil
+
+replace websto => ../../../web/websto
 
 replace google.golang.org/grpc => ../../../web/grpc

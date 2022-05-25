@@ -24,6 +24,9 @@ import (
 	"immclient"
 	"jpkicli"
 
+	wu "webutil"
+	"webjpki"
+
 	//"encoding/hex"
 )
 
@@ -43,30 +46,21 @@ func registerCallback() {
 	gl.Set("registerJPKIUser", js.FuncOf(registerJPKIUser))
 	gl.Set("enterSignPIN", js.FuncOf(enterSignPIN))
 	gl.Set("reregisterJPKIUser", js.FuncOf(reregisterJPKIUser))
-	gl.Set("reqBoxOk", js.FuncOf(reqBoxOk))
-	gl.Set("reqBoxCancel", js.FuncOf(reqBoxCancel))
-	gl.Set("recordLedger", js.FuncOf(recordLedger))
+	gl.Set("recordLedger", js.FuncOf(recordLedger))	
+
+	wu.InitReqBox("reqBoxOK", "reqBoxCancel", "defaultAction")
+	wu.AppendReqBox("exportAuthCert", exportAuthCertOK, nil)
+	wu.AppendReqBox("exportSignCert", exportSignCertOK, nil)
+	
+	wu.AppendReqBox("enterSignPIN", enterSignPINOK, nil)
+	wu.AppendReqBox("enterAuthPIN", enterAuthPINOK, nil)
 }
 
 func makeContent() {
-	gl := js.Global()
-	doc := js.Global().Get("document")
-
 	go func() {
-		var visibleErrMsg = func(msg string) {
-			nfcContent := doc.Call("getElementById", "nfcContent")
-			nfcContent.Set("innerHTML", msg)
-		}
-
-		webAppNfc := gl.Get(webAppNfcObj)
-		if webAppNfc.Type() != js.TypeObject {
-			visibleErrMsg("The NFC function is not found")
-			return
-		}
-
-		isJPKIF := webAppNfc.Call("isJPKI")
-		if isJPKIF.Bool() == false {
-			visibleErrMsg("This card is not JPKI card")
+		_, errStr := webjpki.GetWebAppNfc()
+		if errStr != "" {
+			wu.VisibleSimpleMsgBox(errStr)
 			return
 		}
 
@@ -102,7 +96,7 @@ func makeEnterSignPINContent() {
 	doc := js.Global().Get("document")
 	html := `
       <div class="immDSBtn">
-        <button onclick="enterSignPIN()" id="enterSignPinBtn">Enter your PIN to sign a message</button>
+        <button onclick="enterSignPIN()" id="enterSignPINBtn">Enter your PIN to sign a message</button>
       </div>
       <div class="immDSBtn">
         <button onclick="reregisterJPKIUser()" id="reregisterJPKIUserBtn">Reregister my ID</button>
@@ -111,18 +105,13 @@ func makeEnterSignPINContent() {
 	nfcContent.Set("innerHTML", html)
 }
 
-func getImmsrvURL() string {
-	loc := js.Global().Get("location")
-	return loc.Get("protocol").String() + "//" + loc.Get("host").String()+"/immsrv"
-}
-
 func registerJPKIUser(this js.Value, in []js.Value) interface{}{
-	url := getImmsrvURL()
+	url := wu.GetImmsrvURL()
 	
 	go func() {
 		privacyType, err := jpkicli.GetRequiredPrivInfo(url)
 		if err != nil {
-			makeErrorMsgBoxContent(err.Error())
+			wu.VisibleMsgBox(err.Error())
 			return
 		}
 		
@@ -132,221 +121,81 @@ func registerJPKIUser(this js.Value, in []js.Value) interface{}{
 	return nil
 }
 
-func makeErrorMsgBoxContent(msg string) {
-	gl := js.Global()
-	doc := gl.Get("document")
-
-	html := `<div class="passReqArea">`
-	html += `  <label>` + msg + `</label>`
-	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxCancel(event, 'errorMsg')" id="reqBoxCancelBtn">Ok</button>`
-	html += `  </div>`
-	html += `</div>`
-
-	reqBoxContent := doc.Call("getElementById", "reqBoxContent")
-	reqBoxContent.Set("innerHTML", html)
-	
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "block")			
-}
-
 func makeExportAuthCertBoxContent(privacyType string) {
-	gl := js.Global()
-	doc := gl.Get("document")
-
-	html := `<div class="passReqArea">`
+	header := `  <label>You will send a pubilc key and a signature in your certificate for authentication. These data will be authenticated by Immutable Server. Please enter your PIN.</label>`
 	if privacyType == jpkicli.PrivTypeAuthCert || privacyType == jpkicli.PrivTypeSignCert {
-		html += `  <label>You will send your certificate for authentication. This certificate will be authenticated by Immutable Server. Please enter your PIN.</label>`
-	}else {
-		html += `  <label>You will send a pubilc key and a signature in your certificate for authentication. These data will be authenticated by Immutable Server. Please enter your PIN.</label>`
+		header = `  <label>You will send your certificate for authentication. This certificate will be authenticated by Immutable Server. Please enter your PIN.</label>`
 	}
-	html += `  <input type="number" id="authPIN">`
-	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'exportAuthCert')" id="reqBoxOkBtn" name="` + privacyType + `">Ok</button>`
-	html += `    <button onclick="reqBoxCancel(event, 'exportAuthCert')" id="reqBoxCancelBtn">Cancel</button>`
-	html += `    <p id="exportAuthCertResult"></p>`
-	html += `  </div>`
-	html += `</div>`
-
-	reqBoxContent := doc.Call("getElementById", "reqBoxContent")
-	reqBoxContent.Set("innerHTML", html)
-
+	header += `  <input type="number" id="authPIN">`
 	
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "block")		
+	webjpki.GetAuthCertPIN = func() string {
+		doc := js.Global().Get("document")
+		return doc.Call("getElementById", "authPIN").Get("value").String()
+	}	
+	
+	footer := `  <input id="privacyType" type="hidden" value="` + privacyType + `">`
+	wu.MakeReqBox("exportAuthCert", header, footer, true, true)
 }
 
-var gRegUser *jpkicli.RegisterJPKIUserRequest
-
-func exportAuthCertOk(in []js.Value) {
+func exportAuthCertOK(in []js.Value) {
 	gl := js.Global()
 	doc := gl.Get("document")
 
-	target := in[0].Get("target")
-	privacyType := target.Get("name").String()
-
-	pin := doc.Call("getElementById", "authPIN").Get("value").String()
-	if pin == "" {
-		return // ignore
-	}
-
-	result := doc.Call("getElementById", "exportAuthCertResult")
-	okBtn := doc.Call("getElementById", "reqBoxOkBtn")
-	var visibleErrMsg = func(msg string) {
-		okBtn.Set("hidden", false)
-		result.Set("innerHTML", msg)
-	}
-
-	rsp, err := jpkicli.GenerateSignature(&authCertImp{}, pin)
-	if err != nil {
-		visibleErrMsg(err.Error())
+	privacyType := doc.Call("getElementById", "privacyType").Get("value").String()
+	errMsg := webjpki.ExportAuthCert(privacyType)
+	if errMsg != "" {
+		wu.VisibleMsgBox(errMsg)
 		return
 	}
 
-	gRegUser = &jpkicli.RegisterJPKIUserRequest{}
-	gRegUser.AuthDigest = rsp.Digest
-	gRegUser.AuthSignature = rsp.Signature
-
-	if privacyType == jpkicli.PrivTypeAuthCert || privacyType == jpkicli.PrivTypeSignCert {
-		gRegUser.AuthCert = rsp.CertAsn1
-		closeReqBox(nil)
-		makeExportSignCertBoxContent(privacyType)
-		return
-	}
-
-	// privacyType == "publicKey"
-	gRegUser.AuthPub = rsp.PubAsn1
-	gRegUser.AuthCertSign = rsp.Cert.Signature
-	gRegUser.AuthHashState, err = jpkicli.GetHashStateUntilSKI(rsp.Cert)
-	if err != nil {
-		visibleErrMsg(err.Error())
-		return
-	}
-	
-	closeReqBox(nil)
 	makeExportSignCertBoxContent(privacyType)
 	return
 }
 
 func makeExportSignCertBoxContent(privacyType string) {
-	gl := js.Global()
-	doc := gl.Get("document")
-
-	html := `<div class="passReqArea">`
+	header := `  <label>You will send a pubilc key and a signature in your certificate for signature. These data will be authenticated by Immutable Server. Please enter your PIN.</label>`
 	if privacyType == jpkicli.PrivTypeSignCert {
-		html += `  <label>You will send your certificate for signature. This certificate will be authenticated by Immutable Server. Please enter your PIN.</label>`
-	}else {
-		html += `  <label>You will send a pubilc key and a signature in your certificate for signature. These data will be authenticated by Immutable Server. Please enter your PIN.</label>`
+		header = `  <label>You will send your certificate for signature. This certificate will be authenticated by Immutable Server. Please enter your PIN.</label>`
 	}
-	html += `  <input type="text" id="signPin">`
-	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'exportSignCert')" id="reqBoxOkBtn" name="` + privacyType + `">Ok</button>`
-	html += `    <button onclick="reqBoxCancel(event, 'exportSignCert')" id="reqBoxCancelBtn">Cancel</button>`
-	html += `    <p id="exportSignCertResult"></p>`
-	html += `  </div>`
-	html += `</div>`
-
-	reqBoxContent := doc.Call("getElementById", "reqBoxContent")
-	reqBoxContent.Set("innerHTML", html)
-
+	header += `  <input type="text" id="signPIN">`
 	
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "block")			
+	webjpki.GetSignCertPIN = func() string {
+		doc := js.Global().Get("document")
+		return doc.Call("getElementById", "signPIN").Get("value").String()
+	}	
+
+	footer := `  <input id="privacyType" type="hidden" value="` + privacyType + `">`
+	wu.MakeReqBox("exportSignCert", header, footer, true, true)
 }
 
-func exportSignCertOk(in []js.Value) {
-	url := getImmsrvURL()
-	gl := js.Global()
-	doc := gl.Get("document")
+func exportSignCertOK(in []js.Value) {
+	doc := js.Global().Get("document")
+	privacyType := doc.Call("getElementById", "privacyType").Get("value").String()
 
-	target := in[0].Get("target")
-	privacyType := target.Get("name").String()
-
-	pin := doc.Call("getElementById", "signPin").Get("value").String()
-	if pin == "" {
-		return // ignore
-	}
-
-	result := doc.Call("getElementById", "exportSignCertResult")
-	okBtn := doc.Call("getElementById", "reqBoxOkBtn")
-	var visibleErrMsg = func(msg string) {
-		okBtn.Set("hidden", false)
-		result.Set("innerHTML", msg)
-	}
-
-	if gRegUser == nil {
-		visibleErrMsg("unexpected state")
-		return
-	}
-
-	rsp, err := jpkicli.GenerateSignature(&signCertImp{}, pin)
-	if err != nil {
-		visibleErrMsg(err.Error())
-		return
-	}
-	gRegUser.SignDigest = rsp.Digest
-	gRegUser.SignSignature = rsp.Signature
-
-	var registerUser = func() {
-		username, err2 := jpkicli.RegisterJPKIUser(url, gRegUser)
-		if err2 != nil {
-			visibleErrMsg(err2.Error())
-			return
-		}
-
-		setRegisteredUsername(username)
-		closeReqBox(nil)
-
-		makeEnterSignPINContent()
-		return // success
-	}
-	
-	if  privacyType == jpkicli.PrivTypeSignCert {
-		gRegUser.SignCert = rsp.CertAsn1
-		registerUser()
+	username, errMsg := webjpki.ExportSignCert(privacyType, "")
+	if errMsg != "" {
+		wu.VisibleMsgBox(errMsg)
 		return
 	}
 	
-	// privacyType == "publicKey" || privacyType == "authCert"
-	gRegUser.SignPub = rsp.PubAsn1
-	gRegUser.SignCertSign = rsp.Cert.Signature
-	gRegUser.SignHashState, err = jpkicli.GetHashStateUntilSKI(rsp.Cert)
-	if err != nil {
-		visibleErrMsg(err.Error())
-		return
-	}
-
-	registerUser()
-	return
+	setRegisteredUsername(username)
+	makeEnterSignPINContent()
+	
+	wu.CloseReqBox(nil)
+	return // success
 }
 
 func reregisterJPKIUser(this js.Value, in []js.Value) interface{}{
 	setRegisteredUsername("") // clear cached username
 
-	gl := js.Global()
-	doc := gl.Get("document")
-
-	html := `<div class="passReqArea">`
-	html += `  <label>Please enter your PIN to authenticate you.</label>`
-	html += `  <input type="number" id="authPIN">`
-	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'enterAuthPIN')" id="reqBoxOkBtn">Ok</button>`
-	html += `    <button onclick="reqBoxCancel(event, 'enterAuthPIN')" id="reqBoxCancelBtn">Cancel</button>`
-	html += `    <p id="enterAuthPINResult"></p>`
-	html += `  </div>`
-	html += `</div>`
-
-	reqBoxContent := doc.Call("getElementById", "reqBoxContent")
-	reqBoxContent.Set("innerHTML", html)
-	
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "block")
-
+	header := `  <label>Please enter your PIN to authenticate you.</label>`
+	header += `  <input type="number" id="authPIN">`
+	wu.MakeReqBox("enterAuthPIN", header, "", true, true)
 	return nil
 }
 
-func enterAuthPINOk(in []js.Value) {
-	url := getImmsrvURL()
+func enterAuthPINOK(in []js.Value) {
+	url := wu.GetImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
@@ -355,11 +204,9 @@ func enterAuthPINOk(in []js.Value) {
 		return // ignore
 	}
 	
-	result := doc.Call("getElementById", "enterAuthPINResult")
-
-	rsp, err := jpkicli.GenerateSignature(&authCertImp{}, pin)
+	rsp, err := jpkicli.GenerateSignature(&webjpki.AuthCertImp{}, pin)
 	if err != nil {
-		result.Set("innerHTML", err.Error())
+		wu.VisibleMsgBox(err.Error())
 		return
 	}
 
@@ -369,59 +216,14 @@ func enterAuthPINOk(in []js.Value) {
 		AuthPub: rsp.PubAsn1,
 	}
 	username, err := jpkicli.GetJPKIUsername(url, signStr)
-	closeReqBox(nil)
 	if err != nil {
 		makeRegisterJPKIUserContentAndClick()
 		return
 	}
 
 	setRegisteredUsername(username)
-	result.Set("innerHTML", "Success")
-	okBtn := doc.Call("getElementById", "reqBoxOkBtn")
-	okBtn.Set("hidden", false)
+	wu.VisibleMsgBox("Success")
 	return
-}
-
-func reqBoxAction(in []js.Value, funcSuffix string) interface{} {
-	if len(in) != 2 {
-		return nil
-	}
-	reqStr := in[1].String() + funcSuffix
-
-	reqFunc, ok := reqBoxFunc[reqStr]
-	if !ok {
-		return nil
-	}
-
-	go reqFunc(in)
-	return nil
-}
-
-var reqBoxFunc = map[string] func([]js.Value){
-	"exportAuthCertOk": exportAuthCertOk,
-	"exportAuthCertCancel": closeReqBox,
-	"exportSignCertOk": exportSignCertOk,
-	"exportSignCertCancel": closeReqBox,
-	"enterSignPINOk": enterSignPINOk,
-	"enterSignPINCancel": closeReqBox,
-	"errorMsgCancel": closeReqBox,
-	"enterAuthPINOk": enterAuthPINOk,
-	"enterAuthPINCancel": closeReqBox,
-}
-
-func closeReqBox(in []js.Value) {
-	gl := js.Global()
-	doc := gl.Get("document")
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "none")	
-}
-
-func reqBoxOk(this js.Value, in []js.Value) interface{} {
-	return reqBoxAction(in, "Ok")
-}
-
-func reqBoxCancel(this js.Value, in []js.Value) interface{} {
-	return reqBoxAction(in, "Cancel")
 }
 
 func getRegisteredUsername() string {
@@ -447,69 +249,26 @@ var cacheUser struct{
 	pin string
 }
 
-type signCertImp struct{}
-func (si *signCertImp) SignData(pin, digest string) (signatureJson string) {
-	webAppNfc := js.Global().Get(webAppNfcObj)
-	return webAppNfc.Call("signData", pin, digest).String()
-}
-func (si *signCertImp) GetCert(pin string) (certJson string) {
-	webAppNfc := js.Global().Get(webAppNfcObj)
-	return webAppNfc.Call("readSignCert", pin).String()
-}
-
-type authCertImp struct{}
-func (si *authCertImp) SignData(pin, digest string) (signatureJson string) {
-	webAppNfc := js.Global().Get(webAppNfcObj)	
-	return webAppNfc.Call("signDataUsingAuthKey", pin, digest).String()
-}
-func (si *authCertImp) GetCert(pin string) (certJson string) {
-	webAppNfc := js.Global().Get(webAppNfcObj)	
-	return webAppNfc.Call("readAuthCert").String()
-}
-
 func enterSignPIN(this js.Value, in []js.Value) interface{}{
-	gl := js.Global()
-	doc := gl.Get("document")
-
-	html := `<div class="passReqArea">`
-	html += `  <label>Please enter your PIN to sign a message.</label>`
-	html += `  <input type="text" id="signPin">`
-	html += `  <div class="immDSBtn">`
-	html += `    <button onclick="reqBoxOk(event, 'enterSignPIN')" id="reqBoxOkBtn">Ok</button>`
-	html += `    <button onclick="reqBoxCancel(event, 'enterSignPIN')" id="reqBoxCancelBtn">Cancel</button>`
-	html += `    <p id="enterSignPINResult"></p>`
-	html += `  </div>`
-	html += `</div>`
-		
-	reqBoxContent := doc.Call("getElementById", "reqBoxContent")
-	reqBoxContent.Set("innerHTML", html)
-	
-	reqBox := doc.Call("getElementById", "reqBox")
-	reqBox.Get("style").Set("display", "block")
-
+	header := `  <label>Please enter your PIN to sign a message.</label>`
+	header += `  <input type="text" id="signPIN">`
+	wu.MakeReqBox("enterSignPIN", header, "", true, true)
 	return nil
 }
 
-func enterSignPINOk(in []js.Value) {
-	url := getImmsrvURL()
+func enterSignPINOK(in []js.Value) {
+	url := wu.GetImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
-	pin := doc.Call("getElementById", "signPin").Get("value").String()
+	pin := doc.Call("getElementById", "signPIN").Get("value").String()
 	if pin == "" {
 		return // ignore
 	}
 
-	result := doc.Call("getElementById", "enterSignPINResult")
-	okBtn := doc.Call("getElementById", "reqBoxOkBtn")
-	var visibleErrMsg = func(msg string) {
-		okBtn.Set("hidden", false)
-		result.Set("innerHTML", msg)
-	}
-
-	rsp, err := jpkicli.GenerateSignature(&signCertImp{}, pin)
+	rsp, err := jpkicli.GenerateSignature(&webjpki.SignCertImp{}, pin)
 	if err != nil {
-		result.Set("innerHTML", err.Error())
+		wu.VisibleMsgBox(err.Error())
 		return
 	}
 
@@ -521,28 +280,24 @@ func enterSignPINOk(in []js.Value) {
 	}
 	privPem, certPem, err := jpkicli.EnrollJPKIUser(url, username, userReq)
 	if err != nil {
-		visibleErrMsg(err.Error())
+		wu.VisibleMsgBox(err.Error())
 		return
 	}
 
 	id := &immclient.UserID{Name: username, Priv: privPem, Cert: certPem, }
 	storageGrpList, err := id.ListAvailableStorageGroup(url)
 	if err != nil {
-		visibleErrMsg(err.Error())
+		wu.VisibleMsgBox(err.Error())
 		return
 	}
 	if len(storageGrpList) < 1 {
-		visibleErrMsg("There is no stroage in the server.")
+		wu.VisibleMsgBox("There is no stroage in the server.")
 		return
 	}
 
 	cacheUser.id = id
 	cacheUser.pin = pin
 
-	closeReqBox(nil)
-	nfcContent := doc.Call("getElementById", "nfcContent")
-	nfcContent.Set("innerHTML", "") // clear
-	
 	html := `<div class="cert-area">`
 	html += `<div class="row">`
 	
@@ -561,44 +316,40 @@ func enterSignPINOk(in []js.Value) {
 	html += `  <div class="cert-input"><input type="text" id="recordLedgerText"></div>`
 	html += `    <div class="immDSBtn">`
 	html += `      <button onclick="recordLedger(event)" id="recordLedgerBtn">Record</button>`
-	html += `      <p id="recordLedgerResult"></p>`
 	html += "    </div>"
 	html += `</div>`
 		
 	html += `</div>`
 
+	nfcContent := doc.Call("getElementById", "nfcContent")
 	nfcContent.Set("innerHTML", html)
+	wu.CloseReqBox(in)
 	return
 }
 
 func recordLedger(this js.Value, in []js.Value) interface{} {
-	url := getImmsrvURL()
+	url := wu.GetImmsrvURL()
 	gl := js.Global()
 	doc := gl.Get("document")
 
 	storageGrpSel := doc.Call("getElementById", "recordStorageGrp")
 	storageGrp := storageGrpSel.Get("value").String()
 
-	result := doc.Call("getElementById", "recordLedgerResult")
-	var visibleResult = func(msg string) {
-		result.Set("innerHTML", msg)
-	}
-		
 	go func() {
 		if cacheUser.id == nil {
-			visibleResult("The specified storage is not ready.")
+			wu.VisibleMsgBox("The specified storage is not ready.")
 			return
 		}
 
 		recordLogText := doc.Call("getElementById", "recordLedgerText").Get("value").String()
 		if recordLogText == "" {
-			visibleResult("empty text")
+			wu.VisibleMsgBox("empty text")
 			return
 		}
 
-		signedText, err := jpkicli.SignData(&signCertImp{}, cacheUser.pin, recordLogText)
+		signedText, err := jpkicli.SignData(&webjpki.SignCertImp{}, cacheUser.pin, recordLogText)
 		if err != nil {
-			visibleResult("JPKI error: " + err.Error())
+			wu.VisibleMsgBox("JPKI error: " + err.Error())
 			return
 		}
 
@@ -608,16 +359,16 @@ func recordLedger(this js.Value, in []js.Value) interface{} {
 		}
 		recJson, err := json.Marshal(rec)
 		if err != nil {
-			visibleResult("unexpected input: " + err.Error())
+			wu.VisibleMsgBox("unexpected input: " + err.Error())
 			return
 		}
 
 		err = cacheUser.id.RecordLedger(storageGrp, "jpki", string(recJson), url)
 		if err != nil {
-			visibleResult("failed to record ledger: " + err.Error())
+			wu.VisibleMsgBox("failed to record ledger: " + err.Error())
 			return
 		}
-		visibleResult("Success")
+		wu.VisibleMsgBox("Success")
 		return
 	}()
 
