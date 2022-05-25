@@ -161,7 +161,7 @@ func (s *server) validateUser(cert *x509.Certificate, funcName string) error {
 		return errors.New("The requester does not exist")
 	}
 
-	if userAttr.MaxEnrollments < 1 {
+	if userAttr.MaxEnrollments < 1 &&  userAttr.MaxEnrollments != -1/* unlimited */ {
 		return errors.New("The requester is disabled")
 	}
 	
