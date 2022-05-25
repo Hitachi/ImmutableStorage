@@ -67,6 +67,7 @@ func registerJPKIAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immo
 	username :=  authParam.UserNameOnCA
 	if username == "" {
 		username = defaultJPKIGrpName
+		authParam.UserNameOnCA = username
 	}
 	fedGrpName := strings.TrimPrefix(username, "@")
 	if fedGrpName == username {
