@@ -79,6 +79,11 @@ func (cli *CAClient) sendReqCA(req *http.Request) (rsp []byte, retErr error){
 }
 
 func (cli *CAClient) RegisterCAUser(adminID *immclient.UserID, req *immclient.RegistrationRequest) (secret string, retErr error) {
+	if req.Name == "" {
+		retErr = fmt.Errorf("failed to register a user due to empty username")
+		return
+	}
+	
 	regRsp := &immclient.RegistrationResponse{}
 	reqCA := &immclient.ReqCAParam{
 		Func: "Register",

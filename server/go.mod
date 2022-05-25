@@ -38,7 +38,7 @@ require (
 	github.com/miekg/pkcs11 v1.1.1 // indirect
 	github.com/moby/sys/mount v0.2.0 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
-	github.com/opencontainers/runc v1.0.3 // indirect
+	github.com/opencontainers/runc v1.1.2 // indirect
 	github.com/spf13/viper v1.7.0 // indirect
 	github.com/sykesm/zap-logfmt v0.0.4 // indirect
 	github.com/syndtr/goleveldb v1.0.0 // indirect

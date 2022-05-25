@@ -5,8 +5,9 @@ Client applications for Immutable Storage can load and store immutable data with
 You can register a user for client as CA administrator.
 1. Select the __Register__ tab.
 2. Select the __Application user__ from the __User type__ drop-down list.
-3. Type the username in the __User name__ text box.
-4. Click the __Register__ button.
+3. Select the __Certificate authority__ from the __Authentication type__ drop-down list.
+4. Type the username in the __User name__ text box.
+5. Click the __Register__ button.
 
 After clicking the __Register__, it will fill the secret in the __Secret__ text box.
 You must prevent the other users from seeing this secret and send it to the registered user.

@@ -29,7 +29,7 @@ const (
 	webAppNfcObj = "webAppNfc"
 )
 
-func getWebAppNfc() (webAppNfc js.Value, retErr string) {
+func GetWebAppNfc() (webAppNfc js.Value, retErr string) {
 	gl := js.Global()
 	webAppNfc = gl.Get(webAppNfcObj)
 	if webAppNfc.Type() != js.TypeObject {
@@ -47,26 +47,26 @@ func getWebAppNfc() (webAppNfc js.Value, retErr string) {
 }
 
 func IsAvailable() bool {
-	_, err := getWebAppNfc()
+	_, err := GetWebAppNfc()
 	return (err == "")
 }
 
-type signCertImp struct{}
-func (si *signCertImp) SignData(pin, digest string) (signatureJson string) {
+type SignCertImp struct{}
+func (si *SignCertImp) SignData(pin, digest string) (signatureJson string) {
 	webAppNfc := js.Global().Get(webAppNfcObj)
 	return webAppNfc.Call("signData", pin, digest).String()
 }
-func (si *signCertImp) GetCert(pin string) (certJson string) {
+func (si *SignCertImp) GetCert(pin string) (certJson string) {
 	webAppNfc := js.Global().Get(webAppNfcObj)
 	return webAppNfc.Call("readSignCert", pin).String()
 }
 
-type authCertImp struct{}
-func (si *authCertImp) SignData(pin, digest string) (signatureJson string) {
+type AuthCertImp struct{}
+func (si *AuthCertImp) SignData(pin, digest string) (signatureJson string) {
 	webAppNfc := js.Global().Get(webAppNfcObj)	
 	return webAppNfc.Call("signDataUsingAuthKey", pin, digest).String()
 }
-func (si *authCertImp) GetCert(pin string) (certJson string) {
+func (si *AuthCertImp) GetCert(pin string) (certJson string) {
 	webAppNfc := js.Global().Get(webAppNfcObj)	
 	return webAppNfc.Call("readAuthCert").String()
 }
@@ -80,13 +80,13 @@ var GetSignCertPIN func() string = func() string {
 	return ""
 }
 
-func ExportAuthCertOK(in []js.Value) string {
+func ExportAuthCert(privacyType string) string {
 	pin := GetAuthCertPIN()
 	if pin == "" {
 		return "The specified PIN is empty"
 	}
 
-	rsp, err := jpkicli.GenerateSignature(&authCertImp{}, pin)
+	rsp, err := jpkicli.GenerateSignature(&AuthCertImp{}, pin)
 	if err != nil {
 		return err.Error()
 	}
@@ -94,32 +94,75 @@ func ExportAuthCertOK(in []js.Value) string {
 	gRegUser = &jpkicli.RegisterJPKIUserRequest{}
 	gRegUser.AuthDigest = rsp.Digest
 	gRegUser.AuthSignature = rsp.Signature
-	gRegUser.AuthCert = rsp.CertAsn1
-	return "" // success
+
+	if privacyType == jpkicli.PrivTypeAuthCert || privacyType == jpkicli.PrivTypeSignCert {
+		gRegUser.AuthCert = rsp.CertAsn1
+		return "" // success
+	}
+
+	// privacyType == "publicKey"
+	gRegUser.AuthPub = rsp.PubAsn1
+	gRegUser.AuthCertSign = rsp.Cert.Signature
+	gRegUser.AuthHashState, err = jpkicli.GetHashStateUntilSKI(rsp.Cert)
+	if err != nil {
+		return err.Error()
+	}
+	
+	return "" // success	
 }
 
-func ExportSignCertOK(in []js.Value, regGroupName string) string {
-	url := wu.GetImmsrvURL()
+func ExportAuthCertOK(in []js.Value) string {
+	return ExportAuthCert(jpkicli.PrivTypeAuthCert)
+}
 
+func exportSignCertWithType(privacyType, regGroupName string) (rsp *jpkicli.GenerateSignatureRsp, retErr string) {
 	pin := GetSignCertPIN()
 	if pin == "" {
-		return "The specified PIN is empty"
+		retErr = "The specified PIN is empty"
+		return
 	}
 
 	if gRegUser == nil {
-		return "unexpected state"
+		retErr = "unexpected state"
+		return
 	}
 
-	rsp, err := jpkicli.GenerateSignature(&signCertImp{}, pin)
+	var err error
+	rsp, err = jpkicli.GenerateSignature(&SignCertImp{}, pin)
 	if err != nil {
-		return err.Error()
+		retErr = err.Error()
+		return
 	}
 
 	gRegUser.SignDigest = rsp.Digest
 	gRegUser.SignSignature = rsp.Signature
-	gRegUser.SignCert = rsp.CertAsn1
-	gRegUser.GroupName = regGroupName
+	gRegUser.GroupName = regGroupName	
 
+	if  privacyType == jpkicli.PrivTypeSignCert {
+		gRegUser.SignCert = rsp.CertAsn1
+		return // success
+	}
+
+	// privacyType == "publicKey" || privacyType == "authCert"
+	gRegUser.SignPub = rsp.PubAsn1
+	gRegUser.SignCertSign = rsp.Cert.Signature
+	gRegUser.SignHashState, err = jpkicli.GetHashStateUntilSKI(rsp.Cert)
+	if err != nil {
+		retErr =  err.Error()
+		return
+	}
+
+	return // success
+}
+
+func ExportSignCertOK(in []js.Value, regGroupName string) string {
+	url := wu.GetImmsrvURL()
+	
+	rsp, errStr := exportSignCertWithType(jpkicli.PrivTypeSignCert, regGroupName)
+	if errStr != "" {
+		return errStr
+	}
+	
 	username, err := jpkicli.RegisterJPKIUser(url, gRegUser)
 	if err != nil {
 		return err.Error()
@@ -138,5 +181,22 @@ func ExportSignCertOK(in []js.Value, regGroupName string) string {
 	id := &immclient.UserID{Name: username, Priv: privPem, Cert: certPem, }
 	websto.StoreKeyPair(username, id)
 	websto.SetCurrentUsername(id.Name)
-	return "" // success
+	return "" // success	
+}
+
+func ExportSignCert(privacyType, regGroupName string) (username, retErr string) {
+	_, retErr = exportSignCertWithType(privacyType, regGroupName)
+	if retErr != "" {
+		return
+	}
+
+	url := wu.GetImmsrvURL()
+	var err error
+	username, err = jpkicli.RegisterJPKIUser(url, gRegUser)
+	if err != nil {
+		retErr = err.Error()
+		return
+	}
+
+	return // success	
 }

@@ -363,6 +363,7 @@ func recordLedger(this js.Value, in []js.Value) interface{} {
 			return // ignore
 		}
 
+		wu.VisibleSimpleMsgBox("Writing...")
 		err = id.RecordLedger(storageGrp, "prog1", recordLogText, url)
 		if err != nil {
 			errMsg = "error: failed to record a prog1 log: " + err.Error()
