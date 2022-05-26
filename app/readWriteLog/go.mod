@@ -24,6 +24,7 @@ require (
 	google.golang.org/grpc v1.46.0 // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.0 // indirect
 	immclient v0.0.0-00010101000000-000000000000 // indirect
 	immop v0.0.0-00010101000000-000000000000 // indirect
 	websto v0.0.0-00010101000000-000000000000 // indirect
