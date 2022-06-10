@@ -108,6 +108,10 @@ func CheckKeyPair(privPem, pubPem []byte) (error) {
 }
 
 func GenerateKeyPair(subj *pkix.Name, dnsNames []string) (privPem, pubPem []byte, skiStr string, retErr error) {
+	return GenerateKeyPairWithCAFlag(subj, dnsNames, true)
+}
+
+func GenerateKeyPairWithCAFlag(subj *pkix.Name, dnsNames []string, isCA bool) (privPem, pubPem []byte, skiStr string, retErr error) {
 	// generate a private key
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -134,7 +138,7 @@ func GenerateKeyPair(subj *pkix.Name, dnsNames []string) (privPem, pubPem []byte
 		NotBefore: nowT,
 		NotAfter: nowT.Add(365*10*24*time.Hour).UTC(),
 		BasicConstraintsValid: true,
-		IsCA: true,
+		IsCA: isCA,
 		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 		Subject: *subj,
@@ -479,7 +483,28 @@ type AdminID struct{
 	Cert []byte
 }
 
+func getOAuthGraphAdminID(username, caName string) (adminID *AdminID) {
+	adminIDs, err := GetAdminIDs("OAUTH_GRAPH", caName)
+	if err != nil || len(adminIDs) <= 0 {
+		return
+	}
+	
+	for _, id := range adminIDs {
+		if strings.HasSuffix(username, id.Name) {
+			adminID = id
+			return // found
+		}
+	}
+	return // not found
+}
+
 func GetAdminID(username, caName string) (id *AdminID, authType string, retErr error) {
+	id = getOAuthGraphAdminID(username, caName)
+	if id != nil {
+		authType = "OAUTH_GRAPH"
+		return
+	}
+	
 	baseCert, authType, err := loadBaseCert(username, caName)
 	if err != nil {
 		retErr = fmt.Errorf("not found administrator: " + err.Error())

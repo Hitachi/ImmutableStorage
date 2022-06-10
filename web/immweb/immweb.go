@@ -940,19 +940,6 @@ func updateActionContent(tabC *js.Value) {
 }
 
 func updateListAppsContent(tabC *js.Value) {
-	caURL := wu.GetImmsrvURL()
-		
-	id, err := websto.GetCurrentID()
-	if err != nil {
-		return
-	}
-
-	regRoles := id.GetRegRoles(caURL)
-	if len(regRoles) > 0 {
-		// add code here
-		print("registrar role\n")
-	}
-	
 	html := `<div class="cert-area">`
 	html += `<div class="listAppsArea">`
 		
