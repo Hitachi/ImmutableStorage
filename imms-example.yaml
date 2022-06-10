@@ -8,7 +8,7 @@ metadata:
 
 spec:
   containers:
-  - image: localhost:32000/imms:1.4.0
+  - image: localhost:32000/imms:1.5.0
     env:
     - name: IMMS_ORG
       value: example.com
