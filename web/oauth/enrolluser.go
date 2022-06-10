@@ -36,7 +36,7 @@ func main() {
 func enrollOAuthUser() {
 	doc := js.Global().Get("document")
 	loc := js.Global().Get("location")
-	url := loc.Get("protocol").String() + "//" + loc.Get("host").String()+immsrvPath
+	hostURL := loc.Get("protocol").String() + "//" + loc.Get("host").String()
 	
 	usernameObj := doc.Call("getElementById", "username")
 	if usernameObj.IsNull() {
@@ -50,8 +50,14 @@ func enrollOAuthUser() {
 	}
 	secret := secretObj.Get("value").String()
 
+	path := ""
+	pathObj := doc.Call("getElementById", "path")
+	if !secretObj.IsNull() {
+		path = pathObj.Get("value").String()
+	}
+
 	go func() {
-		id, err := immclient.EnrollUser(username, immclient.OneYear, secret, url)
+		id, err := immclient.EnrollUser(username, immclient.OneYear, secret, hostURL+immsrvPath)
 		if err != nil {
 			return
 		}
@@ -59,7 +65,6 @@ func enrollOAuthUser() {
 		websto.StoreKeyPair(id.Name, id)
 		websto.SetCurrentUsername(id.Name)
 
-		mainUrl := loc.Get("protocol").String() + "//" + loc.Get("host").String()
-		loc.Set("href", mainUrl)
+		loc.Set("href", hostURL+path)
 	}()
 }

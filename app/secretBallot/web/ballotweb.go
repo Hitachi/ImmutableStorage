@@ -1283,6 +1283,7 @@ func updateSelectVoterTypeContent(tabC *js.Value) {
             <select id="voterAuthType" onchange="selectedVoterType()">
               <option value="CAVoter">Select votors marked voter on CA DB</option>
               <option value="LDAPVoter">Select voters from the LDAP</option>
+              <option value="GraphVoter">Select voters from MS Graph (OAuth2)</option>
               <option value="JPKIVoter">Select voters using JPKI card</option>
             </select>
           </div>
@@ -1315,7 +1316,7 @@ func selectedVoterType(this js.Value, in []js.Value) interface{} {
 	case "LDAPVoter":
 		html += `
           <div class="row">
-            <div class="cert-item"><label for="fedGrpName" id="feGrpNameLabel">Federation group name</label></div>
+            <div class="cert-item"><label for="fedGrpName">Federation group name</label></div>
             <div class="cert-input"><input type="text" id="fedGrpName" value="@"></div>
           </div>
           <div class="row" id="bindLDAPServerArea">
@@ -1339,10 +1340,41 @@ func selectedVoterType(this js.Value, in []js.Value) interface{} {
             <div class="cert-item"><label for="queryLDAP" id="queryLDAPLabel">Query format</label></div>
             <div class="cert-input"><input type="text" id="queryLDAP" value='"(&(objectClass=organizationalPerson)(|(department=de1)(department=de2))(mail=%s))",username'></div>
           </div>`
+	case "GraphVoter":
+		id, err := websto.GetCurrentID()
+		org := ""
+		if err == nil {
+			org, _ = id.GetIssuerOrg()
+		}
+		html += `
+          <div class="row">
+            <div class="cert-item"><label for="groupName">Group name</label></div>
+            <div class="cert-input"><input type="text" id="groupName" value="group1"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="clientID">Client ID</label></div>
+            <div class="cert-input"><input type="text" id="clientID"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="secretValue">Client secret value</label></div>
+            <div class="cert-input"><input type="text" id="secretValue"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="allowPrincipalDomains">Allow principal domains</label></div>
+            <div class="cert-input"><input type="text" id="allowPrincipalDomains" value="example.com"></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="redirectURL">Redirect URL</label></div>
+            <div class="cert-input"><input type="text" id="redirectURL" value="https://www.`+org+`/graphcallback" readonly></div>
+		  </div>
+          <div class="row">
+            <div class="cert-item"><label for="Login URL">Login URL</label></div>
+            <div class="cert-input"><input type="text" id="loginURL" value="https://www.`+org+`/graphcallback/login/group1" readonly></div>
+		  </div>`
 	case "JPKIVoter":
 		html += `
           <div class="row">
-            <div class="cert-item"><label for="fedGrpName" id="feGrpNameLabel">Federation group name</label></div>
+            <div class="cert-item"><label for="fedGrpName">Federation group name</label></div>
             <div class="cert-input"><input type="text" id="fedGrpName" value="@"></div>
           </div>
           <div class="row">
@@ -1369,6 +1401,7 @@ func selectVoter(this js.Value, in []js.Value) interface{} {
 	selectAuthFunc := map[string] func(id *immclient.UserID, url string) (error){
 		"CAVoter": selectVoterCA,
 		"LDAPVoter": selectVoterLDAP,
+		"GraphVoter": selectVoterOAuthGraph,
 		"JPKIVoter": selectVoterJPKI,
 	}
 
@@ -1432,6 +1465,37 @@ func selectVoterLDAP(id *immclient.UserID, url string) error {
 	return ballotcli.SelectVoter(id, url, req)
 }
 
+func selectVoterOAuthGraph(id *immclient.UserID, url string) error {
+	doc := js.Global().Get("document")
+	authParamS := &struct{
+		GroupName string
+		ClientID string
+		SecretValue string
+		AllowDomains string
+		ReqPath string
+	}{
+		GroupName: doc.Call("getElementById", "groupName").Get("value").String(),
+		ClientID: doc.Call("getElementById", "clientID").Get("value").String(),
+		SecretValue: doc.Call("getElementById", "secretValue").Get("value").String(),
+		AllowDomains: doc.Call("getElementById", "allowPrincipalDomains").Get("value").String(),
+		ReqPath: js.Global().Get("location").Get("pathname").String(),
+	}
+	authParamRaw, err := json.Marshal(authParamS)
+	if err != nil {
+		return errors.New("failed to get authentication parameters: " + err.Error())
+	}
+	org, _ := id.GetIssuerOrg()
+	loginURL := "https://www."+org+"/graphcallback/login/"+authParamS.GroupName
+	doc.Call("getElementById", "loginURL").Set("value", loginURL)
+
+	req := &ballotcli.SelectVoterRequest{
+		AuthType: "OAUTH_GRAPH",
+		AuthParam: authParamRaw,
+	}
+
+	return ballotcli.SelectVoter(id, url, req)
+}
+
 func selectVoterJPKI(id *immclient.UserID, url string) error {
 	doc := js.Global().Get("document")
 
@@ -1454,7 +1518,7 @@ func selectVoterJPKI(id *immclient.UserID, url string) error {
 		}
 	}
 	if !validF {
-		return errors.New("invalid compare flag")
+		return errors.New("invalid comparison symbol")
 	}
 
 	birthdayFilter = tmpDay + "T00:00:00" + curTimeOffset()  + vFlag

@@ -41,8 +41,8 @@ import (
 
 const (
 	voterRegNameSuffix = "@voter"
-	ballotSuffix = ".ballot"
 	ballotAuthTypeLDAP = "LDAP.ballot"
+	ballotAuthTypeGraph = "OAUTH_GRAPH"
 	ballotAuthTypeCA = "CA.ballot"
 	ballotAuthTypeJPKI = "JPKI.ballot"
 	VOTER_STA = "imm.VoterState"
@@ -187,6 +187,8 @@ func ballotSelectVoter(req *immop.BallotFuncRequest, cert *x509.Certificate) (rs
 		retErr = registerVoterReg(cert, ballotAuthTypeCA, "", nil)
 	case "LDAP":
 		retErr = registerVoterRegForLDAP(cert, selVoterReq.AuthParam)
+	case "OAUTH_GRAPH":
+		retErr = registerVoterRegForOAuthGraph(cert, selVoterReq.AuthParam)
 	case "JPKI":
 		retErr = registerVoterRegForJPKI(cert, selVoterReq.AuthParam)
 	default:
@@ -198,7 +200,7 @@ func ballotSelectVoter(req *immop.BallotFuncRequest, cert *x509.Certificate) (rs
 }
 
 func registerVoterReg(cert *x509.Certificate, authType, regNamePrefix string, authParamRaw []byte) (retErr error) {
-	hfRegAttrVal := VOTER_STA
+	hfRegAttrVal := VOTER_STA + ","+bcli.ROLE_Prefix+bcli.ROLE_Voter
 	if authType == ballotAuthTypeJPKI {
 		hfRegAttrVal += "," + AUTH_UserParam
 	}
@@ -264,6 +266,22 @@ func registerVoterRegForLDAP(cert *x509.Certificate, authParamRaw []byte) (error
 	return registerVoterReg(cert, ballotAuthTypeLDAP,  authParam.GroupName, authParamRaw)
 }
 
+func registerVoterRegForOAuthGraph(cert *x509.Certificate, authParamRaw []byte) (error) {
+	authParam := &OAuthParam{}
+	err := json.Unmarshal(authParamRaw, authParam)
+	if err != nil {
+		return fmt.Errorf("invalid authentication parameter: %s", err)
+	}
+
+	err = registerVoterReg(cert, ballotAuthTypeGraph, "@"+authParam.GroupName, authParamRaw)
+	if err != nil {
+		return err
+	}
+
+	org := cert.Issuer.Organization[0]
+	return createOAuthHandler(org)
+}
+
 func getBirthdayFilter(filter string) (filterDate *time.Time, cmpFlag string, retErr error) {
 	validCmpFlags := []string{"<",">","<=",">="}
 	tmpDate := ""
@@ -276,11 +294,11 @@ func getBirthdayFilter(filter string) (filterDate *time.Time, cmpFlag string, re
 		}
 	}
 	if !validF {
-		retErr = errors.New("invalid compare flag")
+		retErr = errors.New("invalid comparision symbol")
 		return
 	}
 
-	// The specified compare flag is valid.
+	// The specified comparison symbol is valid.
 	// check date format
 	filterDate = &time.Time{}
 	err := filterDate.UnmarshalText([]byte(tmpDate))
@@ -712,7 +730,7 @@ func ballotGetVoterState(req *immop.BallotFuncRequest, cert *x509.Certificate) (
 
 		username = reqName.Username
 	}
-	
+
 	voterRegID, _,  err := immutil.GetAdminID(username, caName)
 	if err != nil {
 		retErr = fmt.Errorf("authentication error")
@@ -755,4 +773,20 @@ func getVoterState(voterRegUser *immclient.UserID, username string) (state strin
 
 	retErr = fmt.Errorf("not found state")
 	return
+}
+
+func isVoterReg(id *immclient.UserID, caURL string) bool {
+	userAttr, err := id.GetIdentity(caURL, id.Name)
+	if err != nil {
+		return false
+	}
+
+	for _, attr := range userAttr.Attributes {
+		role := strings.TrimPrefix(attr.Name, ROLE_Prefix)
+		if role != attr.Name {
+			return (role == bcli.ROLE_VoterReg) && (attr.Value == "true")
+		}
+	}
+	
+	return false
 }

@@ -36,6 +36,7 @@ import (
 	"immop"
 	"immclient"
 	"immutil"
+	bcli "ballotcli"
 )
 
 const (
@@ -48,7 +49,8 @@ type OAuthParam struct{
 	GroupName string
 	ClientID string
 	SecretValue string
-	AllowDomains string	
+	AllowDomains string
+	ReqPath string
 }
 
 func registerOAuthAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *immop.RegisterUserRequest) (cert []byte, retErr error) {
@@ -95,8 +97,8 @@ func registerOAuthAdmin(caCli *cacli.CAClient, tmpPriv, tmpCert []byte, req *imm
 
 type userConfig struct{
 	oauthConfig *oauth2.Config
-	allowDomains string
 	adminID *immclient.UserID
+	authParam *OAuthParam
 }
 var oauthState map[string]*userConfig
 var oauthSrv *http.Server
@@ -104,21 +106,20 @@ var oauthCAName string
 
 type allowUserAttr struct{
 	username string
-	adminID *immclient.UserID
 }
 var oauthAllowUser map[string]*allowUserAttr
 
+func hasOAuthAdmin(org string) bool {
+	adminIDs, err := immutil.GetAdminIDs("OAUTH_GRAPH", immutil.CAHostname+"."+org)
+	if err != nil {
+		return false
+	}
+	return len(adminIDs) > 0
+}
+
 func createOAuthHandler(org string) (retErr error){
 	oauthCAName = immutil.CAHostname+"."+org
-	adminIDs, err := immutil.GetAdminIDs("OAUTH_GRAPH", oauthCAName)
-	if err != nil {
-		retErr = err
-		return
-	}
-	if len(adminIDs) <= 0 {
-		return // not necessary
-	}
-
+	
 	tlsCASecretName := immutil.TlsCAHostname + "." +  org
 	tlsCAPriv, tlsCACert, err := immutil.K8sGetKeyPair(tlsCASecretName)
 	if err != nil {
@@ -198,7 +199,7 @@ func oauthGraphLogin(w http.ResponseWriter, req *http.Request) {
 	caCli := cacli.NewCAClient("https://"+oauthCAName+cacli.DefaultPort)
 
 	groupName := strings.TrimPrefix(req.URL.Path, "/login/")
-	if groupName == req.URL.Path {
+	if groupName == req.URL.Path || groupName == "" {
 		return // ignore
 	}
 
@@ -213,17 +214,19 @@ func oauthGraphLogin(w http.ResponseWriter, req *http.Request) {
 
 		privilegeF := false
 		for _, attr := range adminAttr.Attributes {
-			switch attr.Name {
-			case ROLE_Prefix+"AdminReg":
-				privilegeF = (attr.Value == "true")
-			case AUTH_Param:
-				authParam = &OAuthParam{}
-				err := json.Unmarshal([]byte(attr.Value), authParam)
-				if err != nil {
-					authParam = nil
+			role := strings.TrimPrefix(attr.Name, ROLE_Prefix)
+			if role != attr.Name {
+				privilegeF = (role == "AdminReg" || role == bcli.ROLE_VoterReg)
+				privilegeF = privilegeF && (attr.Value == "true")
+				if !privilegeF {
 					break
 				}
+				continue
+			}
 
+			if attr.Name == AUTH_Param {
+				authParam = &OAuthParam{}
+				json.Unmarshal([]byte(attr.Value), authParam)
 				if groupName != authParam.GroupName {
 					authParam = nil
 					break
@@ -235,6 +238,7 @@ func oauthGraphLogin(w http.ResponseWriter, req *http.Request) {
 			cfg.adminID = adminUser
 			break
 		}
+		authParam = nil
 	}
 	if authParam == nil {
 		log.Printf("Authentication failure: not allow group=%s\n", groupName)
@@ -253,7 +257,7 @@ func oauthGraphLogin(w http.ResponseWriter, req *http.Request) {
 		},
 		RedirectURL: "https://www."+org+GRAPHCALLBACK_PATH,
 	}
-	cfg.allowDomains = authParam.AllowDomains
+	cfg.authParam = authParam
 
 	state := immclient.RandStr(64)
 	oauthState[state] = cfg
@@ -321,7 +325,7 @@ func oauthGraphCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowDomains := strings.Split(cfg.allowDomains, ",")
+	allowDomains := strings.Split(cfg.authParam.AllowDomains, ",")
 	allowF := false
 	for _, allowDomain := range allowDomains {
 		if strings.HasSuffix(userOdata.Principal, "@" + allowDomain) {
@@ -335,10 +339,9 @@ func oauthGraphCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	tmpState := immclient.RandStr(16)
-	username := userOdata.Principal + REG_NAME_SUFFIX
+	username := userOdata.Principal + cfg.adminID.Name
 	oauthAllowUser[tmpState] = &allowUserAttr{
 		username: username,
-		adminID: cfg.adminID,
 	}
 
 	html := `
@@ -362,8 +365,9 @@ func oauthGraphCallback(w http.ResponseWriter, r *http.Request) {
     });
   </script>
   <div id="enrollUserContent">
-    <input type="hidden" id="username" readonly="readonly" value="`+username+`">
-    <input type="hidden" id="secret" readonly="readonly" value="`+tmpState+`">
+    <input type="hidden" id="username" value="`+username+`">
+    <input type="hidden" id="secret" value="`+tmpState+`">
+    <input type="hidden" id="path" value="`+cfg.authParam.ReqPath+`">
   </div>
   <div id="result"></div>
 </body>
@@ -464,21 +468,6 @@ func addProxyPass(org string) (retErr error) {
 	}
 	
 	return // success
-}
-
-func getOAuthAdminID(username, secret string) (adminID *immclient.UserID, authType string) {
-	if oauthAllowUser == nil {
-		return
-	}
-	
-	attr, ok := oauthAllowUser[secret]
-	if !ok || attr.username != username {
-		return
-	}
-
-	adminID = attr.adminID
-	authType = "OAUTH_GRAPH"
-	return
 }
 
 func authenticateOAuthUser(adminID *immclient.UserID, authType, username, secret string) (retErr error) {

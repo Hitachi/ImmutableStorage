@@ -3710,17 +3710,13 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	caName := s.parentCert.Subject.CommonName
 	caCli := cacli.NewCAClient("https://"+caName+cacli.DefaultPort)
 
-	adminUser, authType := getOAuthAdminID(username, req.Secret)
-	if adminUser == nil {
-		var adminID *immutil.AdminID
-		adminID, authType, err = immutil.GetAdminID(username, caName)
-		if err != nil || strings.HasPrefix(authType, authCAPrefix) {
-			// request to CA
-			reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
-			return
-		}
-		adminUser = &immclient.UserID{Name: adminID.Name, Priv: adminID.Priv, Cert: adminID.Cert, Client: caCli, }
+	adminID, authType, err := immutil.GetAdminID(username, caName)
+	if err != nil || strings.HasPrefix(authType, authCAPrefix) {
+		// request to CA
+		reply.Cert, retErr = caCli.EnrollCAUser(username, req.Secret, enrollReq)
+		return
 	}
+	adminUser := &immclient.UserID{Name: adminID.Name, Priv: adminID.Priv, Cert: adminID.Cert, Client: caCli, }
 	
 	// Enrolling user is federated user
 	retErr = authenticateFedUser(adminUser, authType, username, req.Secret)
@@ -3737,7 +3733,7 @@ func (s *server) EnrollUser(ctx context.Context, req *immop.EnrollUserRequest) (
 	// register and enroll user
 	userType := "client"
 	userAttrs := &[]immclient.Attribute{}
-	if strings.HasSuffix(authType, ballotSuffix) {
+	if isVoterReg(adminUser, caCli.UrlBase) {
 		userType, userAttrs = ballotGetUserTypeAndAttr()
 	}
 	reply.Cert, retErr = caCli.RegisterAndEnrollUser(adminUser, userType, username, userAttrs, enrollReq)
@@ -3924,7 +3920,10 @@ func main() {
 	}
 
 	org := cert.Subject.Organization[0]
-	createOAuthHandler(org)
+
+	if hasOAuthAdmin(org) {
+		createOAuthHandler(org)
+	}
 	
 	caSecretName := immutil.CAHostname + "." + org
 	_, parentCertPem, err := immutil.K8sGetKeyPair(caSecretName)
