@@ -40,9 +40,9 @@ const (
 	CouchDBImg = "hyperledger/fabric-couchdb:amd64-0.4.22"
 	PeerImg = "hyperledger/fabric-peer:1.4.11"
 	
-	ImmHttpdImg = "library/httpd:2.4.46"
+	ImmHttpdImg = "library/httpd:2.4.53"
 	ImmSrvImg = "library/ubuntu:20.04"
-	EnvoyImg = "envoyproxy/envoy:v1.14.6"
+	EnvoyImg = "envoyproxy/envoy:v1.22.0"
 
 	ContRuntimeBaseImg = "library/ubuntu:20.04"
 	ContRuntimeImg = "immplugin:runtime1"

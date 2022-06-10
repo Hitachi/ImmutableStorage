@@ -361,6 +361,10 @@ func K8sStoreKeyPairOnSecret(privPem, certPem []byte, secretName string) (retErr
 }
 
 func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
+	return K8sCreateSelfKeyPairWithCAFlag(subj, true)
+}
+
+func K8sCreateSelfKeyPairWithCAFlag(subj *pkix.Name, isCA bool) (secretName string, retErr error) {
 	secretName = subj.CommonName
 
 	validKey, retErr := k8sCheckKeyPair(secretName)
@@ -368,7 +372,7 @@ func K8sCreateSelfKeyPair(subj *pkix.Name) (secretName string, retErr error) {
 		return
 	}
 
-	privPem, pubPem, _, retErr := GenerateKeyPair(subj, nil)
+	privPem, pubPem, _, retErr := GenerateKeyPairWithCAFlag(subj, nil, isCA)
 	if retErr != nil {
 		return
 	}

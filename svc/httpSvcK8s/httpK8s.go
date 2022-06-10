@@ -44,7 +44,7 @@ func startHttpd(config *immutil.ImmConfig) error {
 	//	caHostname := immutil.CAHostname+strings.TrimPrefix(hostname, immutil.HttpdHostname)
 
 	// create keys for a HTTPD
-	secretName, err := immutil.K8sCreateSelfKeyPair(subj)
+	secretName, err := immutil.K8sCreateSelfKeyPairWithCAFlag(subj, false)
 	if err != nil {
 		return fmt.Errorf("failed to create keys for a HTTPD: %s", err)
 	}
