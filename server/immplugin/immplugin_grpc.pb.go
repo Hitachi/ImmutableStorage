@@ -11,7 +11,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion6
+// Requires gRPC-Go v1.32.0 or later.
+const _ = grpc.SupportPackageIsVersion7
 
 // ImmPluginClient is the client API for ImmPlugin service.
 //
@@ -38,22 +39,31 @@ func (c *immPluginClient) DoPlugin(ctx context.Context, in *DoPluginRequest, opt
 }
 
 // ImmPluginServer is the server API for ImmPlugin service.
-// All implementations should embed UnimplementedImmPluginServer
+// All implementations must embed UnimplementedImmPluginServer
 // for forward compatibility
 type ImmPluginServer interface {
 	DoPlugin(context.Context, *DoPluginRequest) (*DoPluginReply, error)
+	mustEmbedUnimplementedImmPluginServer()
 }
 
-// UnimplementedImmPluginServer should be embedded to have forward compatible implementations.
+// UnimplementedImmPluginServer must be embedded to have forward compatible implementations.
 type UnimplementedImmPluginServer struct {
 }
 
-func (*UnimplementedImmPluginServer) DoPlugin(context.Context, *DoPluginRequest) (*DoPluginReply, error) {
+func (UnimplementedImmPluginServer) DoPlugin(context.Context, *DoPluginRequest) (*DoPluginReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DoPlugin not implemented")
 }
+func (UnimplementedImmPluginServer) mustEmbedUnimplementedImmPluginServer() {}
 
-func RegisterImmPluginServer(s *grpc.Server, srv ImmPluginServer) {
-	s.RegisterService(&_ImmPlugin_serviceDesc, srv)
+// UnsafeImmPluginServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ImmPluginServer will
+// result in compilation errors.
+type UnsafeImmPluginServer interface {
+	mustEmbedUnimplementedImmPluginServer()
+}
+
+func RegisterImmPluginServer(s grpc.ServiceRegistrar, srv ImmPluginServer) {
+	s.RegisterService(&ImmPlugin_ServiceDesc, srv)
 }
 
 func _ImmPlugin_DoPlugin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -74,7 +84,10 @@ func _ImmPlugin_DoPlugin_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
-var _ImmPlugin_serviceDesc = grpc.ServiceDesc{
+// ImmPlugin_ServiceDesc is the grpc.ServiceDesc for ImmPlugin service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ImmPlugin_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "immplugin.ImmPlugin",
 	HandlerType: (*ImmPluginServer)(nil),
 	Methods: []grpc.MethodDesc{
