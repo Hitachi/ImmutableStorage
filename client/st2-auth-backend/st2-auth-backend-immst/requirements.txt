@@ -1,0 +1,4 @@
+passlib>=1.7.1,<1.8.0
+protobuf==4.22.1
+grpcio==1.51.3
+grpcio-tools==1.51.3
