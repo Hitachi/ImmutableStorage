@@ -1,0 +1,4 @@
+ARG BASEIMG
+FROM $BASEIMG
+WORKDIR /var/lib
+COPY ./grpcProxy ./
