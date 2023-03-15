@@ -24,33 +24,18 @@ import (
 	"strconv"
 	"time"
 
-	"math/big"
-	"encoding/pem"
-	"encoding/asn1"
-	"crypto/ecdsa"
-	"crypto/x509"
+	"encoding/hex"
 	"crypto/sha256"
 	"crypto/rand"
 
-	"context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/golang/protobuf/proto"
+	"fabric/protos/msp"
+	"fabric/protos/common"
+	pp "fabric/protos/peer"
 
-	"github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/protos/common"
-
-	"github.com/hyperledger/fabric/common/genesis"
-	"github.com/hyperledger/fabric/common/policies"
-
-	"github.com/golang/protobuf/ptypes/timestamp"
-	"github.com/hyperledger/fabric/common/channelconfig"
-
-	pp "github.com/hyperledger/fabric/protos/peer"
-	"github.com/hyperledger/fabric/common/tools/configtxlator/update"
-
-	po "github.com/hyperledger/fabric/protos/orderer"
+	"fabric/channelconfig"
 )
 
 const (
@@ -62,19 +47,89 @@ const (
 	OrdererMspIDPrefix = "OrdererMSP"
 )
 
+func GenerateTxID(creatorData []byte) (string, []byte) {
+	randNum := make([]byte, 24)
+	rand.Read(randNum)
+
+	buf := append(randNum, creatorData...)
+	digest := sha256.Sum256(buf)
+	txID := hex.EncodeToString(digest[:])	
+
+	return txID, randNum[:]
+}
+
 func CreateGenesisBlock(channelID, ordererName string, anchorPeers []*immop.ExportServiceReply) (blockRaw []byte, err error) { 
 	chGr, err := newChannelGroup(channelID+"Consortium", ordererName, anchorPeers)
 	if err != nil {
 		return
 	}
 
-	block := genesis.NewFactoryImpl(chGr).Block(channelID)
+	txID, nonce := GenerateTxID(nil)
+	chHeader, _ := proto.Marshal(&common.ChannelHeader{
+		Type: int32(common.HeaderType_CONFIG),
+		Version: int32(1),
+		Timestamp: &timestamppb.Timestamp{
+			Seconds: time.Now().Unix(),
+			Nanos: 0,
+		},
+		ChannelId: channelID,
+		Epoch: uint64(0),
+		TxId: txID,
+	})
+	signatureHeader, _ := proto.Marshal(&common.SignatureHeader{
+		Creator: nil,
+		Nonce: nonce,
+	})
+
+	payloadData, _ := proto.Marshal(&common.ConfigEnvelope{Config: &common.Config{ChannelGroup: chGr}})
+	payload, _ := proto.Marshal(&common.Payload{
+		Header: &common.Header{
+			ChannelHeader: chHeader,
+			SignatureHeader: signatureHeader,
+		},
+		Data: payloadData,
+	})
+	
+	envelope, _ := proto.Marshal(&common.Envelope{
+		Payload: payload,
+		Signature: nil,
+	})
+	envelopeHash := sha256.New()
+	envelopeHash.Write(envelope)
+	
+	block := &common.Block{
+		Header: &common.BlockHeader{
+			Number: 0,
+			PreviousHash: nil,
+			DataHash: envelopeHash.Sum(nil),
+		},
+		Data: &common.BlockData{
+			Data: [][]byte{envelope},
+		},
+		Metadata: &common.BlockMetadata{
+		},
+	}
+
+	lastConfigVal, _ := proto.Marshal(&common.LastConfig{Index: 0})
+	block.Metadata.Metadata = make([][]byte, len(common.BlockMetadataIndex_name))
+	block.Metadata.Metadata[common.BlockMetadataIndex_LAST_CONFIG], _ = proto.Marshal(&common.Metadata{
+		Value: lastConfigVal,
+	})
+	
 	blockRaw, err = proto.Marshal(block)
 	return
 }
 
+func newConfigGroup() *common.ConfigGroup {
+	return &common.ConfigGroup{
+		Groups: make(map[string]*common.ConfigGroup),
+		Values: make(map[string]*common.ConfigValue),
+		Policies: make(map[string]*common.ConfigPolicy),
+	}
+}
+
 func newChannelGroup(consortiumName, ordererName string, anchorPeers []*immop.ExportServiceReply) (chGr *common.ConfigGroup, err error) {
-	chGr = common.NewConfigGroup()
+	chGr = newConfigGroup()
 	chGr.ModPolicy = AdminsPolicyKey
 
 	err = addValue(chGr, channelconfig.HashingAlgorithmValue(), AdminsPolicyKey)
@@ -127,9 +182,22 @@ func newChannelGroup(consortiumName, ordererName string, anchorPeers []*immop.Ex
 }
 
 func addImplicitMetaPolicyDefaults(cg *common.ConfigGroup){
-	addPolicy(cg, policies.ImplicitMetaMajorityPolicy(channelconfig.AdminsPolicyKey), channelconfig.AdminsPolicyKey)
-	addPolicy(cg, policies.ImplicitMetaAnyPolicy(channelconfig.ReadersPolicyKey), channelconfig.AdminsPolicyKey)
-	addPolicy(cg, policies.ImplicitMetaAnyPolicy(channelconfig.WritersPolicyKey), channelconfig.AdminsPolicyKey)
+	//addPolicy(cg, policies.ImplicitMetaMajorityPolicy(channelconfig.AdminsPolicyKey), channelconfig.AdminsPolicyKey)
+
+	//ddPolicy(cg, policies.ImplicitMetaAnyPolicy(channelconfig.ReadersPolicyKey), channelconfig.AdminsPolicyKey)
+	//addPolicy(cg, policies.ImplicitMetaAnyPolicy(channelconfig.WritersPolicyKey), channelconfig.AdminsPolicyKey)	
+	addPolicyImplicitMeta(cg, channelconfig.AdminsPolicyKey, &common.ImplicitMetaPolicy{
+		Rule: common.ImplicitMetaPolicy_MAJORITY,
+		SubPolicy: channelconfig.AdminsPolicyKey,
+	}, channelconfig.AdminsPolicyKey)
+	addPolicyImplicitMeta(cg, channelconfig.ReadersPolicyKey, &common.ImplicitMetaPolicy{
+		Rule: common.ImplicitMetaPolicy_ANY,
+		SubPolicy: channelconfig.ReadersPolicyKey,
+	}, channelconfig.AdminsPolicyKey)
+	addPolicyImplicitMeta(cg, channelconfig.WritersPolicyKey, &common.ImplicitMetaPolicy{
+		Rule: common.ImplicitMetaPolicy_ANY,
+		SubPolicy: channelconfig.WritersPolicyKey,
+	}, channelconfig.AdminsPolicyKey)	
 }
 
 func addValue(cg *common.ConfigGroup, value channelconfig.ConfigValue, modPolicy string) (err error) {
@@ -145,17 +213,29 @@ func addValue(cg *common.ConfigGroup, value channelconfig.ConfigValue, modPolicy
 	return
 }
 
+func addPolicyImplicitMeta(cg *common.ConfigGroup, key string, value *common.ImplicitMetaPolicy, modPolicy string) {
+	valueRaw, _ := proto.Marshal(value)
+	cg.Policies[key] = &common.ConfigPolicy{
+		Policy: &common.Policy{
+			Type: int32(common.Policy_IMPLICIT_META),
+			Value: valueRaw,
+		},
+		ModPolicy: modPolicy,
+	}
+}
 
+/*
 func addPolicy(cg *common.ConfigGroup, policy policies.ConfigPolicy, modPolicy string) {
 	cg.Policies[policy.Key()] = &common.ConfigPolicy{
 		Policy:    policy.Value(),
 		ModPolicy: modPolicy,
 	}
 }
+*/
 
 
 func newOrdererGroup(ordererName string) (ordererGr *common.ConfigGroup , err error) {
-	ordererGr = common.NewConfigGroup()
+	ordererGr = newConfigGroup()
 	ordererGr.ModPolicy = AdminsPolicyKey
 
 	addImplicitMetaPolicyDefaults(ordererGr)
@@ -197,7 +277,7 @@ func newOrdererGroup(ordererName string) (ordererGr *common.ConfigGroup , err er
 }
 
 func newApplicationGroup(ordererGr *common.ConfigGroup) (appGr *common.ConfigGroup, err error) {
-	appGr = common.NewConfigGroup()
+	appGr = newConfigGroup()
 	appGr.ModPolicy = channelconfig.AdminsPolicyKey
 
 	addImplicitMetaPolicyDefaults(appGr)
@@ -273,7 +353,7 @@ func addOrgAnchorsToAppGroup(appGr *common.ConfigGroup, anchorPeers []*immop.Exp
 }
 
 func newConsortiumsGroup(consortiumName string, anchorPeers []*immop.ExportServiceReply, ordererGr *common.ConfigGroup) (consortiumsGr *common.ConfigGroup, err error) {
-	consortiumsGr = common.NewConfigGroup()
+	consortiumsGr = newConfigGroup()
 	consortiumsGr.ModPolicy = ordererAdminsPolicyName
 
 	acceptAllPolicy := &common.SignaturePolicyEnvelope{
@@ -303,10 +383,19 @@ func newConsortiumsGroup(consortiumName string, anchorPeers []*immop.ExportServi
 }
 
 func newConsortiumGr(anchorPeers []*immop.ExportServiceReply, ordererGr *common.ConfigGroup) (consortiumGr *common.ConfigGroup, retErr error) {
-	consortiumGr = common.NewConfigGroup()
+	consortiumGr = newConfigGroup()
 	consortiumGr.ModPolicy = ordererAdminsPolicyName
 
-	addValue(consortiumGr, channelconfig.ChannelCreationPolicyValue(policies.ImplicitMetaAnyPolicy(channelconfig.AdminsPolicyKey).Value()), ordererAdminsPolicyName)
+	policyValRaw, _ := proto.Marshal(&common.ImplicitMetaPolicy{
+		Rule: common.ImplicitMetaPolicy_ANY,
+		SubPolicy: channelconfig.AdminsPolicyKey,
+	})
+	policy := &common.Policy{
+		Type: int32(common.Policy_IMPLICIT_META),
+		Value: policyValRaw,
+	}
+
+	addValue(consortiumGr, channelconfig.ChannelCreationPolicyValue(policy), ordererAdminsPolicyName)
 
 	for _, peer := range anchorPeers {
 		caCert, _, err := immutil.ReadCertificate(peer.CACert)
@@ -340,7 +429,7 @@ func newConsortiumGr(anchorPeers []*immop.ExportServiceReply, ordererGr *common.
 }
 
 func newOrgGroup(mspID string, CACert, AdminCert, TlsCACert []byte, nodeOUsF bool) (orgGroup *common.ConfigGroup, retErr error) {
-	orgGroup = common.NewConfigGroup()
+	orgGroup = newConfigGroup()
 	orgGroup.ModPolicy = AdminsPolicyKey
 
 	mspConfig := getMSPConfig(mspID, CACert, AdminCert, TlsCACert, nodeOUsF)
@@ -473,333 +562,6 @@ func getOrgAnchor(anchorPeers []*immop.ExportServiceReply) (anchors map[string] 
 	return
 }
 
-func makeChannelCreationTransaction(channelID, secretName  string, anchorPeers []*immop.ExportServiceReply) (*common.Envelope, error) {
-	appGr, err := newApplicationGroup(nil)
-	if err != nil {
-		return nil, err
-	}
-
-	err = addOrgAnchorsToAppGroup(appGr, anchorPeers)
-	if err != nil {
-		return nil, err
-	}
-
-	// increase version
-	newChannelGroup := &common.ConfigGroup{
-		Groups: map[string]*common.ConfigGroup{
-			channelconfig.ApplicationGroupKey: appGr,
-		},
-	}
-	
-	original := proto.Clone(newChannelGroup).(*common.ConfigGroup)
-	original.Groups[channelconfig.ApplicationGroupKey].Values = nil
-	original.Groups[channelconfig.ApplicationGroupKey].Policies = nil
-	newChannelConfig, err := update.Compute(&common.Config{ChannelGroup: original}, &common.Config{ChannelGroup: newChannelGroup})
-	if err != nil {
-		return nil, err
-	}
-	
-	consortiumNameRaw, err := proto.Marshal(&common.Consortium{Name: channelID+"Consortium"})
-	if err != nil {
-		return nil, err
-	}
-
-//	newChannelConfig.ChannelId = channelID+"_1"
-	newChannelConfig.ChannelId = channelID
-	newChannelConfig.ReadSet.Values[channelconfig.ConsortiumKey] = &common.ConfigValue{Version: 0}
-	newChannelConfig.WriteSet.Values[channelconfig.ConsortiumKey] = &common.ConfigValue{
-		Version: 0,
-		Value: consortiumNameRaw,
-	}
-
-	newChannelConfigRaw, err := proto.Marshal(newChannelConfig)
-	if err != nil {
-		return nil, err
-	}
-	newConfigUpdate := &common.ConfigUpdateEnvelope{ ConfigUpdate: newChannelConfigRaw, }
-
-
-	readSet, err := mapConfig(newChannelConfig.ReadSet, "Channel")
-	writeSet, err := mapConfig(newChannelConfig.WriteSet, "Channel")
-	computeDeltaSet(readSet, writeSet)
-
-
-	keyPem, certPem, err := immutil.K8sGetSignKeyFromSecret(secretName)
-	if err != nil {
-		return nil, err
-	}
-	return signConfigUpdate(channelID, OrdererMspIDPrefix, keyPem, certPem, newConfigUpdate)
-//	return signConfigUpdate(channelID, "peer0.ledger.com", fabctr.PeerImg, "/var/hyperledger/peer/", mspIDPrefix, newConfigUpdate)
-}
-
-/* test only ->*/
-type comparable struct {
-	*common.ConfigGroup
-	*common.ConfigValue
-	*common.ConfigPolicy
-	key  string
-	path []string
-}
-
-func (cg comparable) version() uint64 {
-	switch {
-	case cg.ConfigGroup != nil:
-		return cg.ConfigGroup.Version
-	case cg.ConfigValue != nil:
-		return cg.ConfigValue.Version
-	case cg.ConfigPolicy != nil:
-		return cg.ConfigPolicy.Version
-	}
-
-	// Unreachable
-	return 0
-}
-
-const (
-	groupPrefix  = "[Group]  "
-	valuePrefix  = "[Value]  "
-	policyPrefix = "[Policy] "
-
-	pathSeparator = "/"
-)
-
-func mapConfig(channelGroup *common.ConfigGroup, rootGroupKey string) (map[string]comparable, error) {
-	result := make(map[string]comparable)
-	if channelGroup != nil {
-		err := recurseConfig(result, []string{rootGroupKey}, channelGroup)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return result, nil
-}
-
-func addToMap(cg comparable, result map[string]comparable) error {
-	var fqPath string
-
-	switch {
-	case cg.ConfigGroup != nil:
-		fqPath = groupPrefix
-	case cg.ConfigValue != nil:
-		fqPath = valuePrefix
-	case cg.ConfigPolicy != nil:
-		fqPath = policyPrefix
-	}
-
-	if len(cg.path) == 0 {
-		fqPath += pathSeparator + cg.key
-	} else {
-		fqPath += pathSeparator + strings.Join(cg.path, pathSeparator) + pathSeparator + cg.key
-	}
-
-
-	result[fqPath] = cg
-
-	return nil
-}
-// recurseConfig is used only internally by mapConfig
-func recurseConfig(result map[string]comparable, path []string, group *common.ConfigGroup) error {
-	if err := addToMap(comparable{key: path[len(path)-1], path: path[:len(path)-1], ConfigGroup: group}, result); err != nil {
-		return err
-	}
-
-	for key, group := range group.Groups {
-		nextPath := make([]string, len(path)+1)
-		copy(nextPath, path)
-		nextPath[len(nextPath)-1] = key
-		if err := recurseConfig(result, nextPath, group); err != nil {
-			return err
-		}
-	}
-
-	for key, value := range group.Values {
-		if err := addToMap(comparable{key: key, path: path, ConfigValue: value}, result); err != nil {
-			return err
-		}
-	}
-
-	for key, policy := range group.Policies {
-		if err := addToMap(comparable{key: key, path: path, ConfigPolicy: policy}, result); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func computeDeltaSet(readSet, writeSet map[string]comparable) map[string]comparable {
-	result := make(map[string]comparable)
-	for key, value := range writeSet {
-		readVal, ok := readSet[key]
-		
-		fmt.Printf("log: key=%s, read.ver=%d write.ver=%d ok=%v\n", key, readVal.version(), value.version(), ok)
-		if ok && readVal.version() == value.version() {
-			continue
-		}
-		
-		// If the key in the readset is a different version, we include it
-		// Error checking on the sanity of the update is done against the config
-		result[key] = value
-	}
-	return result
-}
-
-/* test only <- */
-
-func signConfigUpdate(channelID, mspPrefix string, keyPem, certPem []byte, newConfigUpdate *common.ConfigUpdateEnvelope) (*common.Envelope, error) {
-	signHeader, err := NewSignatureHeader(certPem, mspPrefix)
-	if err != nil {
-		return nil, err
-	}
-	msg := append(signHeader, newConfigUpdate.ConfigUpdate ...)
-	chSign, err := signMessage(keyPem, msg)
-	if err != nil {
-		return nil, err
-	}
-
-	configSign := &common.ConfigSignature{
-		SignatureHeader: signHeader,
-		Signature: chSign,
-	}
-
-	newConfigUpdate.Signatures = append(newConfigUpdate.Signatures, configSign)
-
-	chHeader, err := proto.Marshal(&common.ChannelHeader{
-		Type: int32(common.HeaderType_CONFIG_UPDATE),
-		Version: 0,
-		Timestamp: &timestamp.Timestamp{
-			Seconds: time.Now().Unix(),
-			Nanos: 0,
-		},
-		ChannelId: channelID,
-		Epoch: 0,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create a channel header: %s", err)
-	}
-		
-	header := &common.Header {
-		ChannelHeader: chHeader,
-		SignatureHeader: signHeader,
-	}
-
-	data, err := proto.Marshal(newConfigUpdate)
-	if err != nil {
-		return nil, fmt.Errorf("could not create a configuration to update channel: %s", err)
-	}
-
-	payload, err := proto.Marshal(&common.Payload{
-		Header: header,
-		Data: data,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create a payload: %s", err)
-	}
-
-	signPayload, err := signMessage(keyPem, payload)
-	if err != nil {
-		return nil, err
-	}
-
-	return &common.Envelope{
-		Payload: payload,
-		Signature: signPayload,
-	}, nil
-}
-
-func makeAnchorPeersUpdate(channelID, ordererSecretName string, anchors []*pp.AnchorPeer, orgName string) (*common.Envelope, error) {
-	cfg := &common.ConfigUpdate{
-		ChannelId: channelID,
-		WriteSet: common.NewConfigGroup(),
-		ReadSet: common.NewConfigGroup(),
-	}
-
-	anchorsRaw, err := proto.Marshal(channelconfig.AnchorPeersValue(anchors).Value())
-	if err != nil {
-		return nil, err
-	}
-
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey] = common.NewConfigGroup()
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Version = 0
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].ModPolicy = channelconfig.AdminsPolicyKey
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName] = common.NewConfigGroup()
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Values[channelconfig.MSPKey] = &common.ConfigValue{}
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.ReadersPolicyKey] = &common.ConfigPolicy{}
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.WritersPolicyKey] = &common.ConfigPolicy{}
-	cfg.ReadSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.AdminsPolicyKey] = &common.ConfigPolicy{}
-
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey] = common.NewConfigGroup()
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Version = 0
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].ModPolicy = channelconfig.AdminsPolicyKey
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName] = common.NewConfigGroup()
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Version = 1
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].ModPolicy = channelconfig.AdminsPolicyKey
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Values[channelconfig.MSPKey] = &common.ConfigValue{}
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.ReadersPolicyKey] = &common.ConfigPolicy{}
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.WritersPolicyKey] = &common.ConfigPolicy{}
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Policies[channelconfig.AdminsPolicyKey] = &common.ConfigPolicy{}
-	cfg.WriteSet.Groups[channelconfig.ApplicationGroupKey].Groups[orgName].Values[channelconfig.AnchorPeersKey] = &common.ConfigValue{
-		Value: anchorsRaw,
-		ModPolicy: channelconfig.AdminsPolicyKey,
-	}
-	
-	cfgRaw, err := proto.Marshal(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	cfgEnvelope := &common.ConfigUpdateEnvelope{ ConfigUpdate: cfgRaw, }
-
-	keyPem, certPem, err := immutil.K8sGetSignKeyFromSecret(ordererSecretName)
-	if err != nil {
-		return nil, err
-	}
-	return signConfigUpdate(channelID, OrdererMspIDPrefix, keyPem, certPem, cfgEnvelope)
-}
-
-func sendChannelConfigUpdate(ordererHostname string, chTX *common.Envelope) error {
-	_, _, tlsCACert, err := immutil.K8sGetCertsFromSecret(ordererHostname)
-	if err != nil {
-		return err
-	}
-
-	cert, _, err := immutil.ReadCertificate(tlsCACert)
-	if err != nil {
-		return err
-	}
-	certPool := x509.NewCertPool()
-	certPool.AddCert(cert)
-	creds := credentials.NewClientTLSFromCert(certPool, ordererHostname)
-	conn, err := grpc.Dial(ordererHostname+":7050", grpc.WithTransportCredentials(creds)) 
-	if err != nil {
-		return fmt.Errorf("did not connect to orderer: %s", err)
-	}
-	defer conn.Close()
-
-	ordererClient, err := po.NewAtomicBroadcastClient(conn).Broadcast(context.TODO())
-	if err != nil {
-		return fmt.Errorf("failed connecting to orderer service: %s", err)
-	}
-
-	err = ordererClient.Send(chTX)
-	if err != nil {
-		return fmt.Errorf("send error: %s", err)
-	}
-
-	rsp, err := ordererClient.Recv()
-	if (err != nil) || (rsp.Status != common.Status_SUCCESS) {
-		var errMsg string
-		if err != nil {
-			errMsg = err.Error()
-		}
-		
-		return fmt.Errorf("get an error response from orderer service: %s, status=%s, info=%s\n",
-			errMsg, rsp.Status, rsp.Info)
-	}
-
-	return nil
-}
-
 func NewSignatureHeader(certPem []byte, mspPrefix string) ([]byte, error) {
 	cert, _, err := immutil.ReadCertificate(certPem)
 	if err != nil {
@@ -828,39 +590,66 @@ func NewSignatureHeader(certPem []byte, mspPrefix string) ([]byte, error) {
 	return headerData, nil
 }
 
-type ECDSASignature struct {
-	R, S *big.Int
-}
-
-func signMessage(key, msg []byte) ([]byte, error) {
-	privData, _ := pem.Decode(key)
-	if x509.IsEncryptedPEMBlock(privData) {
-		return nil, fmt.Errorf("not support encrypted PEM")
+func CreateProposalFromCIS(hType common.HeaderType, chName string, cis *pp.ChaincodeInvocationSpec, creator []byte) (propRaw []byte,prop *pp.Proposal,  retErr error) {
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		
+		retErr = fmt.Errorf("failed to marshal a message: %s", retErr)
+	}()
+	
+	txID, nonce := GenerateTxID(creator)
+	headerEx, retErr := proto.Marshal(&pp.ChaincodeHeaderExtension{ChaincodeId: cis.ChaincodeSpec.ChaincodeId})
+	if retErr != nil {
+		return
+	}
+	cisRaw, retErr := proto.Marshal(cis)
+	if retErr != nil {
+		return
+	}
+	ccPropPayload, retErr := proto.Marshal(&pp.ChaincodeProposalPayload{Input: cisRaw})
+	if retErr != nil {
+		return
 	}
 	
-	privKeyBase, err := x509.ParsePKCS8PrivateKey(privData.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported key format: %s", err)
+	chHeader, retErr := proto.Marshal(&common.ChannelHeader{
+		Type: int32(hType),
+		TxId: txID,
+		Timestamp: &timestamppb.Timestamp{
+			Seconds: time.Now().Unix(),
+			Nanos: 0,
+		},
+		ChannelId: chName,
+		Epoch: uint64(0),
+		Extension: headerEx,
+	})
+	if retErr != nil {
+		return
 	}
-	privKey, ok := privKeyBase.(*ecdsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("unexpected key\n")
-		
+	signatureHeader, retErr := proto.Marshal(&common.SignatureHeader{
+		Creator: creator,
+		Nonce: nonce,
+	})
+	if retErr != nil {
+		return
 	}
-	digest := sha256.Sum256(msg)
+	header, retErr := proto.Marshal(&common.Header{
+		ChannelHeader: chHeader,
+		SignatureHeader: signatureHeader,
+	})
+	if retErr != nil {
+		return
+	}
 
-	r, s, err := ecdsa.Sign(rand.Reader, privKey, digest[:])
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign a message: %s", err)
+	prop = &pp.Proposal{
+		Header: header,
+		Payload: ccPropPayload,
 	}
-	baseN := privKey.Params().N
-	if s.Cmp(new(big.Int).Rsh(baseN, 1)) == 1 {
-		s.Sub(baseN, s)
-	}
-	signRaw, err := asn1.Marshal(ECDSASignature{r, s})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create signature: %s", err)
+	propRaw, retErr = proto.Marshal(prop)
+	if retErr != nil {
+		return
 	}
 
-	return signRaw, nil
+	return // success
 }
