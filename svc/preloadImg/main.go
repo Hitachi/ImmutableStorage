@@ -52,9 +52,10 @@ import (
 	
 	"go.etcd.io/bbolt"
 
-	"archive/tar"
 	"fmt"
 	"os"
+	"os/exec"
+	"bytes"
 	"io"
 	"context"
 
@@ -66,6 +67,16 @@ const (
 	baseDir = "/work"
 )
 
+type localRegistry struct{
+	imgSvc *images.ImageService
+	regAddr string
+	plat *specs.Platform
+	authCfgLocal *types.AuthConfig
+	resultPipe *io.PipeWriter
+	builder *buildernext.Builder
+	isCgroupV2 bool
+}
+
 func Main(args []string) {
 	var findImgList = map[string] *struct{present bool; prefix string}{
 		immutil.CaImg: { false, DOCKER_IO_REPO },
@@ -73,8 +84,28 @@ func Main(args []string) {
 		immutil.CouchDBImg: { false, DOCKER_IO_REPO },
 		immutil.PeerImg: { false, DOCKER_IO_REPO },
 		immutil.ImmHttpdImg: { false, DOCKER_IO_REPO },
-		immutil.ImmSrvImg: { false, DOCKER_IO_REPO },
+		immutil.ImmSrvBaseImg: { false, DOCKER_IO_REPO },
 		immutil.EnvoyImg: { false, DOCKER_IO_REPO },
+		immutil.RsyslogBaseImg: { false, DOCKER_IO_REPO },
+		
+		immutil.ST2AuthBaseImg: { false, DOCKER_IO_REPO },
+
+		immutil.MongoDBImg: { false, DOCKER_IO_REPO },
+		immutil.RabbitMQImg: { false, DOCKER_IO_REPO },
+		immutil.RedisImg: { false, DOCKER_IO_REPO },
+		
+		immutil.ST2ActionRunnerImg: {},
+		immutil.ST2APIImg: { false, DOCKER_IO_REPO },
+		immutil.ST2StreamImg: { false, DOCKER_IO_REPO },
+		immutil.ST2SchedulerImg: { false, DOCKER_IO_REPO },
+		immutil.ST2WorkflowEngineImg: { false, DOCKER_IO_REPO },
+		immutil.ST2GarbageCollectorImg: { false, DOCKER_IO_REPO },
+		immutil.ST2NotifierImg: { false, DOCKER_IO_REPO },
+		immutil.ST2RuleEngineImg: { false, DOCKER_IO_REPO },
+		immutil.ST2SensorContainerImg: { false, DOCKER_IO_REPO },
+		immutil.ST2TimerEngineImg: { false, DOCKER_IO_REPO },
+		immutil.ST2ChatopsImg: { false, DOCKER_IO_REPO },
+		immutil.ST2WebImg: { false, DOCKER_IO_REPO },
 	}
 	
 	authCfgLocal := &types.AuthConfig{}
@@ -213,12 +244,64 @@ func Main(args []string) {
 		}
 	}
 
-	// build plugin image
-	err = buildImmPluginImg(imgSvc, regAddr, &plat, authCfgLocal, resultW)
-	if err != nil {
-		fmt.Printf("%s\n", err)
-		os.Exit(13)
+	// pull images to the local registry
+	var retErr error
+	defer func() {
+		if retErr != nil {
+			fmt.Printf("%s\n", retErr)
+			os.Exit(14)
+		}
+	}()
+	
+	locReg := &localRegistry{
+		imgSvc: imgSvc,
+		regAddr: regAddr,
+		plat: &plat,
+		authCfgLocal: authCfgLocal,
+		resultPipe: resultW,
 	}
+
+	// build images
+	retErr = locReg.initImgBuilder()
+	if retErr != nil {
+		return
+	}
+	
+	srcImgs := []struct{
+		srcFile string
+		baseImg string
+		pushTag string
+	}{
+		{immutil.ImgSrcDir+"/immpluginsrv.tar", immutil.ContRuntimeBaseImg, immutil.ImmPluginSrvImg},
+		{immutil.ImgSrcDir+"/immsrv.tar", immutil.ImmSrvBaseImg, immutil.ImmSrvImg},		
+		{immutil.ImgSrcDir+"/rsyslog2imm.tar", immutil.RsyslogBaseImg, immutil.RsyslogImg},
+		{immutil.ImgSrcDir+"/st2-auth-backend.tar", immutil.ST2AuthBaseImg, immutil.ST2AuthImg},
+		{immutil.ImgSrcDir+"/immgrpcproxy.tar", immutil.ImmGRPCProxyBaseImg, immutil.ImmGRPCProxyImg},
+	}
+	
+	for i := 0; i < len(srcImgs); i++ {
+		srcImg := srcImgs[i]
+		fmt.Printf("build %s image\n", srcImg.pushTag)
+
+		
+		retErr = locReg.pullImg(srcImg.baseImg)
+		if retErr != nil {
+			return
+		}
+
+		err = locReg.buildImg(srcImg.srcFile, srcImg.baseImg, srcImg.pushTag)
+		if err != nil {
+			retErr = fmt.Errorf("failed to build %s: %s", srcImg.pushTag, err)
+			return
+		}
+
+		err = locReg.pushImg(srcImg.pushTag)
+		if err != nil {
+			retErr = err
+		}
+	}
+
+	return // success
 }
 
 func initImageService(localRegAddr string) (imgSvc *images.ImageService, boltdb *bbolt.DB, retErr error) {
@@ -310,7 +393,59 @@ func initImageService(localRegAddr string) (imgSvc *images.ImageService, boltdb 
 	return// success
 }
 
-func initImgBuilder(imgSvc *images.ImageService) (builder *buildernext.Builder, retErr error) {
+func shCmd(cmdStr string) (outStr string, retErr error) {
+	var str bytes.Buffer
+	cmd := exec.Command("/bin/sh", "-c", cmdStr)
+	cmd.Stdout = &str
+	retErr = cmd.Run()
+	if retErr != nil {
+		return
+	}
+	
+	outBytes, retErr := io.ReadAll(&str)
+	if retErr != nil {
+		return
+	}
+
+	outStr = string(outBytes)
+	return
+}
+
+func cgroupType() (retFileType string) {
+	retFileType, _ = shCmd("echo -n $(stat -fc %T /sys/fs/cgroup/)")
+	if retFileType == "" {
+		retFileType = "Unknown"
+	}
+	return
+}
+
+func remountCgroupWritable() (retErr error) {
+	_, retErr = shCmd("mount -t cgroup2 -o remount,rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot none /sys/fs/cgroup")
+	return
+}
+
+func unmountCgroupForBuilder() (retErr error) {
+	cgroupDirs := []string{"/sys/fs/cgroup/docker/buildkit", "/sys/fs/cgroup/docker"}
+	for i := 0; i < len(cgroupDirs); i++ {
+		_, retErr = shCmd("if [ -d "+cgroupDirs[i]+" ]; then rmdir "+cgroupDirs[i]+"; fi")
+		if retErr != nil {
+			return
+		}
+	}
+	return // success
+}
+
+func (lr *localRegistry) initImgBuilder() (retErr error) {
+	lr.isCgroupV2 = (cgroupType() == "cgroup2fs")
+	if lr.isCgroupV2 {
+		// remount the cgroup filesystem as writable
+		err := remountCgroupWritable()
+		if err != nil {
+			retErr = err
+			return
+		}
+	}
+	
 	sessionMng, err := session.NewManager()
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a manager for session: %s", err)
@@ -340,10 +475,10 @@ func initImgBuilder(imgSvc *images.ImageService) (builder *buildernext.Builder, 
 		}
 	}
 	
-	builder, err = buildernext.New(buildernext.Opt{
+	lr.builder, err = buildernext.New(buildernext.Opt{
 		SessionManager: sessionMng,
 		Root: baseDir + "/buildkit",
-		Dist: imgSvc.DistributionServices(),
+		Dist: lr.imgSvc.DistributionServices(),
 		NetworkController: controller,
 		DefaultCgroupParent: "docker",
 		RegistryHosts: resolver.NewRegistryConfig(registryCfg),
@@ -371,8 +506,56 @@ func displayProgress(resultR *io.PipeReader) {
 	}	
 }
 
-func buildImg(builder *buildernext.Builder, src io.ReadCloser, srcSize int64, tag string, resultW *io.PipeWriter) (retErr error) {
-	imgID, err := builder.Build(context.Background(),
+func (lr *localRegistry) pullImg(baseImgName string) error {
+	metaHeaders := map[string][]string{}
+	pullTag := lr.regAddr+"/"+baseImgName
+	err := lr.imgSvc.PullImage(context.Background(), pullTag, "", lr.plat, metaHeaders, lr.authCfgLocal, lr.resultPipe)
+	if err != nil {
+		return fmt.Errorf("failed to pull %s: %s", baseImgName, err)
+	}
+
+	_, err = lr.imgSvc.TagImage(pullTag, baseImgName, "")
+	if err != nil {
+		return fmt.Errorf("failed to tag %s image: %s", baseImgName, err)
+	}
+
+	return nil // success
+}
+
+func (lr *localRegistry) pushImg(imgName string) error {
+	metaHeaders := map[string][]string{}
+	pushTag := lr.regAddr+"/"+imgName
+	_, err := lr.imgSvc.TagImage(imgName, pushTag, "")
+	if err != nil {
+		return fmt.Errorf("failed to tag %s image: %s", imgName, err)
+	}
+	err = lr.imgSvc.PushImage(context.Background(), pushTag, "", metaHeaders, lr.authCfgLocal, lr.resultPipe)
+	if err != nil {
+		return fmt.Errorf("failed to push %s image: %s", imgName, err)
+	}
+
+	return nil /// success
+}
+
+func (lr *localRegistry) buildImg(srcTarFile, baseImg, tag string) (retErr error) {
+	src, err := os.Open(srcTarFile)
+	if err != nil {
+		retErr = fmt.Errorf("failed to open a tar file: %s", err)
+		return
+	}
+
+	srcStat, err := src.Stat()
+	if err != nil {
+		retErr = fmt.Errorf("could not get the length of the tar file: %s", err)
+		return
+	}
+	srcSize := srcStat.Size()
+	
+	buildArgs := map[string]*string{
+		"BASEIMG": &baseImg,
+	}
+	
+	imgID, err := lr.builder.Build(context.Background(),
 		backend.BuildConfig{
 			Source: src,
 			Options: &types.ImageBuildOptions{
@@ -380,18 +563,23 @@ func buildImg(builder *buildernext.Builder, src io.ReadCloser, srcSize int64, ta
 				Version: types.BuilderBuildKit,
 				Tags: []string{tag, },
 				NetworkMode: "host",
+				BuildArgs: buildArgs,
 			},
 			ProgressWriter: backend.ProgressWriter{
-				Output: resultW,
-				StdoutFormatter: streamformatter.NewStdoutWriter(resultW),
-				StderrFormatter: streamformatter.NewStdoutWriter(resultW),
+				Output: lr.resultPipe,
+				StdoutFormatter: streamformatter.NewStdoutWriter(lr.resultPipe),
+				StderrFormatter: streamformatter.NewStdoutWriter(lr.resultPipe),
 				AuxFormatter: nil,
 				ProgressReaderFunc: func(in io.ReadCloser) io.ReadCloser {
-					progressOutput := streamformatter.NewJSONProgressOutput(resultW, true)
+					progressOutput := streamformatter.NewJSONProgressOutput(lr.resultPipe, true)
 					return progress.NewProgressReader(in, progressOutput, srcSize, "Downloading context", "")
 				},
 			},
 		})
+	defer func(){
+		unmountCgroupForBuilder()
+	}()
+	
 	if err != nil {
 		retErr = fmt.Errorf("failed to build a image: %s", err)
 		return
@@ -399,79 +587,4 @@ func buildImg(builder *buildernext.Builder, src io.ReadCloser, srcSize int64, ta
 	
 	fmt.Printf("image ID: %s\n", imgID.ImageID)
 	return // success
-}
-
-func buildImmPluginImg(imgSvc *images.ImageService, regAddr string, plat *specs.Platform, authCfgLocal *types.AuthConfig, resultW *io.PipeWriter) error {
-	baseImgName := immutil.ContRuntimeBaseImg
-	metaHeaders := map[string][]string{}
-	
-	err := imgSvc.PullImage(context.Background(), regAddr+"/"+baseImgName, "", plat, metaHeaders, authCfgLocal, resultW)
-	if err != nil {
-		return fmt.Errorf("failed to pull %s: %s", baseImgName, err)
-	}
-
-	_, err = imgSvc.TagImage(regAddr+"/"+baseImgName, baseImgName, "")
-	if err != nil {
-		return fmt.Errorf("failed to tag %s image: %s", baseImgName, err)
-	}
-
-	builder, err := initImgBuilder(imgSvc)
-	if err != nil {
-		return fmt.Errorf("failed to create a builder: %s", err)
-	}
-
-	dockerfileStr := `
-FROM ` + baseImgName+`
-WORKDIR /var/lib
-COPY ./hlRsyslog ./
-COPY ./immpluginsrv ./
-`
-	dockerfile := []byte(dockerfileStr)
-	
-	srcPluginSrvFile, err := os.OpenFile(immutil.ImmPluginDir+"/immpluginsrv", os.O_RDONLY, 0755)
-	if err != nil {
-		return fmt.Errorf("could not open the immpluginsrv file: %s", err)
-	}
-	srcPluginSrv, err := io.ReadAll(srcPluginSrvFile)
-	if err != nil {
-		return fmt.Errorf("failed to read the immpluginsrv flie: %s", err)
-	}
-
-	srcPluginCmdFile, err := os.OpenFile(immutil.ImmPluginDir+"/hlRsyslog", os.O_RDONLY, 0755)
-	if err != nil {
-		return fmt.Errorf("could not open the plugin command file: %s", err)
-	}
-	srcPluginCmd, err := io.ReadAll(srcPluginCmdFile)
-	if err != nil {
-		return fmt.Errorf("failed to read the plugin command file: %s", err)
-	}
-	
-	
-	tarData := []immutil.TarData{
-		{&tar.Header{ Name: "Dockerfile", Mode: 0444, Size: int64(len(dockerfile)), }, dockerfile },
-		{&tar.Header{ Name: "immpluginsrv", Mode: 0755, Size: int64(len(srcPluginSrv)), }, srcPluginSrv },
-		{&tar.Header{ Name: "hlRsyslog", Mode: 0755, Size: int64(len(srcPluginCmd)), }, srcPluginCmd },
-	}
-	pluginSrc, err := immutil.GetTarBuf(tarData)
-	if err != nil {
-		return fmt.Errorf("failed to get tar data: %s", err)
-	}
-
-	err = buildImg(builder, io.NopCloser(&pluginSrc), int64(pluginSrc.Len()), immutil.ImmPluginSrvImg, resultW)
-	if err != nil {
-		return fmt.Errorf("failed to build the immpluginsrv image: %s", err)
-	}
-
-	imgName := immutil.ImmPluginSrvImg
-	_, err = imgSvc.TagImage(imgName, regAddr+"/"+imgName, "")
-	if err != nil {
-		return fmt.Errorf("failed to tag %s image: %s", imgName, err)
-	}
-
-	err = imgSvc.PushImage(context.Background(), regAddr+"/"+immutil.ImmPluginSrvImg, "", metaHeaders, authCfgLocal, resultW)
-	if err != nil {
-		return fmt.Errorf("failed to push %s image: %s", immutil.ImmPluginSrvImg, err)
-	}
-	
-	return nil /// success
 }
