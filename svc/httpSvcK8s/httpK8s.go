@@ -21,19 +21,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-    "context"
 	
 	"crypto/x509/pkix"
 	"fmt"
 	"os"
 	"bytes"
+	"os/exec"
 
 	"immutil"
 )
 
 const (
-	confHostSuffix = "conf"
-	tmplConfHostSuffix = "httpd"
 	httpConfCntDir = "/usr/local/apache2/conf"
 	httpDataCntDir = "/usr/local/apache2/htdocs"
 )
@@ -49,46 +47,6 @@ func startHttpd(config *immutil.ImmConfig) error {
 		return fmt.Errorf("failed to create keys for a HTTPD: %s", err)
 	}
 
-	// create configuration files
-	httpBaseDir := immutil.VolBaseDir + "/" + hostname
-	httpConfDir := httpBaseDir + "/" + confHostSuffix
-	tmplConfDir := immutil.TmplDir + "/" + tmplConfHostSuffix
-	_, err = os.Stat(httpConfDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// copy template files
-			err2 := immutil.CopyTemplate(tmplConfDir, httpBaseDir)
-			if err2 != nil {
-				return err2
-			}
-
-/*
-			// edit httpd.conf
-			httpConfFile, err2 := os.OpenFile(httpConfDir + "/httpd.conf", os.O_WRONLY|os.O_APPEND, 0644)
-			if err2 != nil {
-				return fmt.Errorf("failed to open a configuration file: %s", err2)
-			}
-			httpConfFile.Write([]byte("ProxyPass \"/ca\" \"https://" + caHostname + ":7054\"\n"))
-			httpConfFile.Close()
-*/
-
-			// edit extra/httpd-ssl.conf
-			sslConfFile := httpConfDir + "/extra/httpd-ssl.conf"
-			httpSslConf, err2 := os.ReadFile(sslConfFile)
-			if err2 != nil {
-				return fmt.Errorf("failed to read httpd-ssl.conf: %s", err2)
-			}
-
-			httpSslConf = bytes.Replace(httpSslConf, []byte("HOSTNAME"), []byte(hostname), 1)
-			err2 = os.WriteFile(sslConfFile, httpSslConf, 0644)
-			if err2 != nil {
-				return fmt.Errorf("failed to edit httpd-ssl.conf: %s", err2)
-			}
-		} else {
-			return fmt.Errorf("unexpected file state: %s", httpConfDir)
-		}
-	}
-
 	org := subj.Organization[0]
 	workVol, err := immutil.K8sGetOrgWorkVol(org)
 	if err != nil {
@@ -101,11 +59,6 @@ func startHttpd(config *immutil.ImmConfig) error {
 	}
 	
 	// deploy a pod and a service
-	deployClient, err := immutil.K8sGetDeploymentClient()
-	if err != nil {
-		return err
-	}
-
 	repn := int32(1)
 	privMode := int32(0400)
 	certMode := int32(0444)
@@ -162,6 +115,7 @@ func startHttpd(config *immutil.ImmConfig) error {
 								{ Name: "vol1", MountPath: httpDataCntDir, SubPath: hostname+"/html", },
 								{ Name: "keys-vol1", MountPath: httpConfCntDir+"/keys", },
 							},
+							Command: []string{"/bin/bash", "-c", "while [ ! -f /usr/local/apache2/conf/ready ];do sleep 1; done; httpd-foreground"},
 							Ports: []corev1.ContainerPort{
 								{
 									Name: "https",
@@ -175,15 +129,7 @@ func startHttpd(config *immutil.ImmConfig) error {
 			},
 		},
 	}
-
-	result, err := deployClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("Could not create a container in a pod: %s\n", err)
-	}
-
-	fmt.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
-
-	//create a service
+	
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: immutil.HttpdHostname,
@@ -203,23 +149,75 @@ func startHttpd(config *immutil.ImmConfig) error {
 			},
 		},
 	}
-	if len(config.ExternalIPs) > 0 {
-		service.Spec.ExternalIPs = config.ExternalIPs
-	}else{
-		service.Spec.Type = corev1.ServiceTypeLoadBalancer
-	}
-	
-	serviceClient, err := immutil.K8sGetServiceClient()
+
+	err = immutil.K8sDeployPodAndService(deployment, service)
 	if err != nil {
 		return err
 	}
-	resultSvc, err := serviceClient.Create(context.TODO(), service, metav1.CreateOptions{})
+
+	var rollbackFunc []func()
+	defer func() {
+		if err == nil {
+			return
+		}
+		for i := len(rollbackFunc)-1; i >= 0; i-- {
+			rollbackFunc[i]()
+		}
+	}()
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(service.Name)
+		immutil.K8sDeleteDeploy(deployment.Name)
+		immutil.K8sDeleteSecret(secretName)
+	})
+
+	podName, err := immutil.K8sWaitPodReadyAndGetPodName("app=httpd", hostname)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
+
+	copyDir := func(srcDir, dstDir string) (error) {
+		var tarBuf bytes.Buffer
+		cmd := exec.Command("/bin/sh", "-c", "tar cf - -C "+srcDir+" .")
+		cmd.Stdout = &tarBuf
+		err = cmd.Run()
+		if err != nil {
+			return fmt.Errorf("failed to read files: %s", err)
+		}
+
+		extractCmd := "tar xf - -C " + dstDir
+		err = immutil.K8sExecCmd(podName, immutil.HttpdHostname, []string{"/bin/sh", "-c", extractCmd}, &tarBuf, nil, nil)
+		if err != nil {
+			return fmt.Errorf("failed to extract files: %s", err)
+		}
+
+		return nil
+	}
+
+	httpdTmplDir := immutil.TmplDir + "/httpd"
+	err = copyDir(httpdTmplDir+"/conf", httpConfCntDir) // copy configuration files
+	if err != nil {
+		return err
+	}
+
+	err = copyDir(httpdTmplDir+"/html", httpDataCntDir) // copy HTML contents
+	if err != nil {
+		return err
+	}
+
+	// edit extra/httpd-ssl.conf
+	SSL_CONF := httpConfCntDir+"/extra/httpd-ssl.conf"
+	err = immutil.K8sExecCmd(podName, immutil.HttpdHostname, []string{"sed","-i","-e",`s/HOSTNAME/`+hostname+`/`, SSL_CONF}, nil, os.Stdout, nil)
 	
-	return nil
+	err = immutil.K8sExecCmd(podName, immutil.HttpdHostname, []string{"touch", httpConfCntDir+"/ready"}, nil, os.Stdout, nil)
+	if err != nil {
+		return fmt.Errorf("failed to write a state file: %s", err)
+	}
+	
+	err = immutil.K8sCreateIngress(service.Name, hostname, org, 443, "HTTPS")
+	if err != nil {
+		return err
+	}
+	return  nil // success
 }
 
 func stopHttpd(subj *pkix.Name) error {
