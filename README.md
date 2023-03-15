@@ -25,18 +25,19 @@ Storage Group consists of one or more than one Immutable Storage service.
 ### Immutable Storage client
 There are the following three types of client for each application.
 
-1. Web applications: 
+1. Web application: 
 You can extend your web application to record immutable and confidential data using WASM module (i.e. imms.wasm)
 
-2. Native Linux applications: 
-Your Linux application can add Immutable Storage functions from a library without writing lots of codes.
+2. Native Linux application: 
+Your Linux application can use Immutable Storage functions from a library without writing lots of codes.
 
-3. Syslog clients: 
+3. Syslog client: 
 Your syslog client will get Immutable Storage functions without adding codes if you edit a configuration file for rsyslogd.
 
 ## Install Immutable Storage Service
 ### What you'll need
 - Kubernetes such as microk8s
+- Kubernetes private image registry, CoreDNS and ingress controller
 - containerd for image registry
 - An Internet connection
 
@@ -44,8 +45,8 @@ Your syslog client will get Immutable Storage functions without adding codes if 
 The Immutable Storage Docker image can be installed to your registry with the following command as root or through sudo.
 
 ```sh
-ctr i import imms-1.5.0.tar
-ctr i push REGISTRY/imms:1.5.0 localhost:32000/imms:1.5.0
+ctr i import imms-1.6.0.tar
+ctr i push REGISTRY/imms:1.6.0 localhost:32000/imms:1.6.0
 ```
 
 REGISTRY is your registry. For example, local registry is "localhost:32000" on microk8s. ctr command may be replaced by microk8s.ctr on microk8s. By default, this "localhost:32000" is an insecure registry. To push the Immutable Storage image to an insecure registry, you need to add the option --plain-http with the "ctr i push" command.
@@ -55,7 +56,7 @@ To configure resources for Immutable Storage service, you need to edit some line
 
 If, for example, your registry is localhost:32000, the line defined image is the following:
  ```yaml
-  - image: localhost:32000/imms:1.2.0
+  - image: localhost:32000/imms:1.6.0
  ```
 
 You must define an organization name for Immutable Storage service. This organization name will be also used as domain name in hostname.
@@ -69,7 +70,22 @@ If you want to set an organization name to example.com, a value in the imms-exam
 Resources for Immutable Storage service can be created with the following command.
 
 ```sh
-kubectl create -f imms-example.yaml
+kubectl apply -f imms-example.yaml
+```
+
+Note: If you want to create these resources with execution progress in the terminal, you will need to comment out the following lines in the imms-example.yaml file.
+
+```yaml
+    #command:
+    #  - sleep
+    #  - "365d"
+```
+
+And you will need to execute some commands:
+```sh
+kubectl apply -f imms-example.yaml
+kubectl exec -it imms -- bash
+root@imms:/var/lib/ImmutableST/bin# ./imms.sh start
 ```
 
 ### 4. Creating an Immutable Storage Service
@@ -85,23 +101,21 @@ This command will print the secret looks like:
 Initial administrator secret: WNB57zcz
 ```
 
-You can get an IP to access Immutable Storage service.
-```
-kubectl get svc
-```
-
-This command will print an IP for "www" service in "EXTERNAL-IP". The IP is 10.64.140.44 in this case.
-
-```
-NAME         TYPE           CLUSTER-IP       EXTERNAL-IP    PORT(S)          AGE
-ca           LoadBalancer   10.152.183.132   10.64.140.43   7054:31623/TCP   3m29s
-envoy        LoadBalancer   10.152.183.247   10.64.140.45   8080:31144/TCP   3m28s
-kubernetes   ClusterIP      10.152.183.1     <none>         443/TCP          7d
-www          LoadBalancer   10.152.183.104   10.64.140.44   443:30126/TCP    3m28s
+To access to Immutable Storage service, you need to map Immutable Storage service hostname to the Ingress IP address.
+You can use either the /etc/hosts file or a name server to map between this hostname and IP address.
+If, for example, you set an organization name to example.com and the Ingress IP address is "127.0.0.1", you can edit the /etc/hosts file with the following commands for mapping this service.
+```sh
+sudo sed -i '/www.example.com/d' /etc/hosts # delete a hostname
+echo "127.0.0.1 www.example.com" | sudo tee -a /etc/hosts  # add a hostname
 ```
 
 You can enter a username and a secret with Web-browser and then click "Enroll user" to enroll CA administrator. In this case, the username is "admin", and the secret is "WNB57zcz".
 ![Enrolling a CA admin](./doc/img/enrollAdmin.jpg)
+
+Note: You can delete the imms pod after enrolling the CA administrator.
+```sh
+kubectl delete pod imms
+```
 
 #### 4.2. Creating an Immutable Storage Service
 You can enroll an administrator to create an Immutable Storage service.
