@@ -8,7 +8,7 @@ metadata:
 
 spec:
   containers:
-  - image: localhost:32000/imms:1.5.0
+  - image: localhost:32000/imms:1.6.0
     env:
     - name: IMMS_ORG
       value: example.com
@@ -18,8 +18,6 @@ spec:
     #  value: '["Tokyo"]'
     #- name: IMMS_CERT_PROVINCE
     #  value: '["Shinagawa"]'
-    ## - name: IMMS_EXTERNAL_IP
-    ##   value: ""
     ## - name: IMMS_REGISTRY
     ##   value: ""
     #- name: IMMS_DOCKER_IO_CRED
@@ -31,9 +29,10 @@ spec:
     imagePullPolicy: IfNotPresent
     name: imms
     # SYS_ADMIN is required for the program to mount the overlay2.
+    # NET_ADMIN is required for the image builder to create the network.
     securityContext:
       capabilities:
-        add: ["SYS_ADMIN"]
+        add: ["SYS_ADMIN", "NET_ADMIN"]
         
     volumeMounts:
     - mountPath: /var/lib/ImmutableST/org
@@ -43,9 +42,10 @@ spec:
   restartPolicy: Never
   volumes:
   - name: work-vol
-    hostPath:
-      path: /var/lib/ImmutableST/org
-      type: DirectoryOrCreate
+    emptyDir: {}
+#    hostPath:
+#      path: /var/lib/ImmutableST/org
+#      type: DirectoryOrCreate
   - name: temp-image-store
     emptyDir: {}
   dnsConfig:
