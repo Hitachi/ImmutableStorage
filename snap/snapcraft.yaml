@@ -1,6 +1,6 @@
 name: imm-client
 base: core20
-version: 1.2.0
+version: 1.6.0
 summary: Examples for Immutable Storage client, and a tool for the rsyslog
 description: |
   imm-client.cc, imm-client,c and imm-client.go are examples for C++, C and golang, respectively.
@@ -74,4 +74,4 @@ parts:
     stage-packages: []
     source: https://github.com/protocolbuffers/protobuf.git
     source-type: git
-    source-tag: v3.12.4
+    source-tag: v3.14.0

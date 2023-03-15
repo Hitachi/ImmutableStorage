@@ -83,7 +83,6 @@ static void InitDefaultsscc_info_Block_common_2fcommon_2eproto() {
     new (ptr) ::common::Block();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::Block::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<3> scc_info_Block_common_2fcommon_2eproto =
@@ -100,7 +99,6 @@ static void InitDefaultsscc_info_BlockData_common_2fcommon_2eproto() {
     new (ptr) ::common::BlockData();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::BlockData::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_BlockData_common_2fcommon_2eproto =
@@ -114,7 +112,6 @@ static void InitDefaultsscc_info_BlockHeader_common_2fcommon_2eproto() {
     new (ptr) ::common::BlockHeader();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::BlockHeader::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_BlockHeader_common_2fcommon_2eproto =
@@ -128,7 +125,6 @@ static void InitDefaultsscc_info_BlockMetadata_common_2fcommon_2eproto() {
     new (ptr) ::common::BlockMetadata();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::BlockMetadata::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_BlockMetadata_common_2fcommon_2eproto =
@@ -142,7 +138,6 @@ static void InitDefaultsscc_info_ChannelHeader_common_2fcommon_2eproto() {
     new (ptr) ::common::ChannelHeader();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::ChannelHeader::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChannelHeader_common_2fcommon_2eproto =
@@ -157,7 +152,6 @@ static void InitDefaultsscc_info_Envelope_common_2fcommon_2eproto() {
     new (ptr) ::common::Envelope();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::Envelope::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_Envelope_common_2fcommon_2eproto =
@@ -171,7 +165,6 @@ static void InitDefaultsscc_info_Header_common_2fcommon_2eproto() {
     new (ptr) ::common::Header();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::Header::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_Header_common_2fcommon_2eproto =
@@ -185,7 +178,6 @@ static void InitDefaultsscc_info_LastConfig_common_2fcommon_2eproto() {
     new (ptr) ::common::LastConfig();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::LastConfig::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_LastConfig_common_2fcommon_2eproto =
@@ -199,7 +191,6 @@ static void InitDefaultsscc_info_Metadata_common_2fcommon_2eproto() {
     new (ptr) ::common::Metadata();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::Metadata::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_Metadata_common_2fcommon_2eproto =
@@ -214,7 +205,6 @@ static void InitDefaultsscc_info_MetadataSignature_common_2fcommon_2eproto() {
     new (ptr) ::common::MetadataSignature();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::MetadataSignature::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_MetadataSignature_common_2fcommon_2eproto =
@@ -228,7 +218,6 @@ static void InitDefaultsscc_info_OrdererBlockMetadata_common_2fcommon_2eproto() 
     new (ptr) ::common::OrdererBlockMetadata();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::OrdererBlockMetadata::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_OrdererBlockMetadata_common_2fcommon_2eproto =
@@ -243,7 +232,6 @@ static void InitDefaultsscc_info_Payload_common_2fcommon_2eproto() {
     new (ptr) ::common::Payload();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::Payload::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_Payload_common_2fcommon_2eproto =
@@ -258,7 +246,6 @@ static void InitDefaultsscc_info_SignatureHeader_common_2fcommon_2eproto() {
     new (ptr) ::common::SignatureHeader();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::common::SignatureHeader::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_SignatureHeader_common_2fcommon_2eproto =
@@ -531,8 +518,6 @@ bool BlockMetadataIndex_IsValid(int value) {
 
 // ===================================================================
 
-void LastConfig::InitAsDefaultInstance() {
-}
 class LastConfig::_Internal {
  public:
 };
@@ -591,7 +576,6 @@ void LastConfig::Clear() {
 
 const char* LastConfig::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -728,8 +712,6 @@ void LastConfig::InternalSwap(LastConfig* other) {
 
 // ===================================================================
 
-void Metadata::InitAsDefaultInstance() {
-}
 class Metadata::_Internal {
  public:
 };
@@ -747,7 +729,7 @@ Metadata::Metadata(const Metadata& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   value_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_value().empty()) {
-    value_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_value(),
+    value_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_value(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:common.Metadata)
@@ -791,13 +773,12 @@ void Metadata::Clear() {
   (void) cached_has_bits;
 
   signatures_.Clear();
-  value_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  value_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* Metadata::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -964,8 +945,6 @@ void Metadata::InternalSwap(Metadata* other) {
 
 // ===================================================================
 
-void MetadataSignature::InitAsDefaultInstance() {
-}
 class MetadataSignature::_Internal {
  public:
 };
@@ -981,12 +960,12 @@ MetadataSignature::MetadataSignature(const MetadataSignature& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   signature_header_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature_header().empty()) {
-    signature_header_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature_header(),
+    signature_header_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature_header(), 
       GetArena());
   }
   signature_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature().empty()) {
-    signature_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature(),
+    signature_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:common.MetadataSignature)
@@ -1031,14 +1010,13 @@ void MetadataSignature::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  signature_header_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  signature_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  signature_header_.ClearToEmpty();
+  signature_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* MetadataSignature::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1201,8 +1179,6 @@ void MetadataSignature::InternalSwap(MetadataSignature* other) {
 
 // ===================================================================
 
-void Header::InitAsDefaultInstance() {
-}
 class Header::_Internal {
  public:
 };
@@ -1218,12 +1194,12 @@ Header::Header(const Header& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   channel_header_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_channel_header().empty()) {
-    channel_header_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_channel_header(),
+    channel_header_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_channel_header(), 
       GetArena());
   }
   signature_header_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature_header().empty()) {
-    signature_header_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature_header(),
+    signature_header_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature_header(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:common.Header)
@@ -1268,14 +1244,13 @@ void Header::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  channel_header_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  signature_header_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  channel_header_.ClearToEmpty();
+  signature_header_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* Header::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1438,10 +1413,6 @@ void Header::InternalSwap(Header* other) {
 
 // ===================================================================
 
-void ChannelHeader::InitAsDefaultInstance() {
-  ::common::_ChannelHeader_default_instance_._instance.get_mutable()->timestamp_ = const_cast< PROTOBUF_NAMESPACE_ID::Timestamp*>(
-      PROTOBUF_NAMESPACE_ID::Timestamp::internal_default_instance());
-}
 class ChannelHeader::_Internal {
  public:
   static const PROTOBUF_NAMESPACE_ID::Timestamp& timestamp(const ChannelHeader* msg);
@@ -1468,22 +1439,22 @@ ChannelHeader::ChannelHeader(const ChannelHeader& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   channel_id_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_channel_id().empty()) {
-    channel_id_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_channel_id(),
+    channel_id_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_channel_id(), 
       GetArena());
   }
   tx_id_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_tx_id().empty()) {
-    tx_id_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_tx_id(),
+    tx_id_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_tx_id(), 
       GetArena());
   }
   extension_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_extension().empty()) {
-    extension_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_extension(),
+    extension_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_extension(), 
       GetArena());
   }
   tls_cert_hash_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_tls_cert_hash().empty()) {
-    tls_cert_hash_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_tls_cert_hash(),
+    tls_cert_hash_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_tls_cert_hash(), 
       GetArena());
   }
   if (from._internal_has_timestamp()) {
@@ -1503,8 +1474,9 @@ void ChannelHeader::SharedCtor() {
   tx_id_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   extension_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   tls_cert_hash_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
-  ::memset(&timestamp_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&epoch_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&timestamp_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&epoch_) -
       reinterpret_cast<char*>(&timestamp_)) + sizeof(epoch_));
 }
 
@@ -1544,10 +1516,10 @@ void ChannelHeader::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  channel_id_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  tx_id_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  extension_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  tls_cert_hash_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  channel_id_.ClearToEmpty();
+  tx_id_.ClearToEmpty();
+  extension_.ClearToEmpty();
+  tls_cert_hash_.ClearToEmpty();
   if (GetArena() == nullptr && timestamp_ != nullptr) {
     delete timestamp_;
   }
@@ -1560,7 +1532,6 @@ void ChannelHeader::Clear() {
 
 const char* ChannelHeader::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1883,8 +1854,6 @@ void ChannelHeader::InternalSwap(ChannelHeader* other) {
 
 // ===================================================================
 
-void SignatureHeader::InitAsDefaultInstance() {
-}
 class SignatureHeader::_Internal {
  public:
 };
@@ -1900,12 +1869,12 @@ SignatureHeader::SignatureHeader(const SignatureHeader& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   creator_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_creator().empty()) {
-    creator_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_creator(),
+    creator_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_creator(), 
       GetArena());
   }
   nonce_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_nonce().empty()) {
-    nonce_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_nonce(),
+    nonce_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_nonce(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:common.SignatureHeader)
@@ -1950,14 +1919,13 @@ void SignatureHeader::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  creator_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  nonce_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  creator_.ClearToEmpty();
+  nonce_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* SignatureHeader::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2120,10 +2088,6 @@ void SignatureHeader::InternalSwap(SignatureHeader* other) {
 
 // ===================================================================
 
-void Payload::InitAsDefaultInstance() {
-  ::common::_Payload_default_instance_._instance.get_mutable()->header_ = const_cast< ::common::Header*>(
-      ::common::Header::internal_default_instance());
-}
 class Payload::_Internal {
  public:
   static const ::common::Header& header(const Payload* msg);
@@ -2144,7 +2108,7 @@ Payload::Payload(const Payload& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   data_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_data().empty()) {
-    data_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_data(),
+    data_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_data(), 
       GetArena());
   }
   if (from._internal_has_header()) {
@@ -2194,7 +2158,7 @@ void Payload::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  data_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  data_.ClearToEmpty();
   if (GetArena() == nullptr && header_ != nullptr) {
     delete header_;
   }
@@ -2204,7 +2168,6 @@ void Payload::Clear() {
 
 const char* Payload::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2368,8 +2331,6 @@ void Payload::InternalSwap(Payload* other) {
 
 // ===================================================================
 
-void Envelope::InitAsDefaultInstance() {
-}
 class Envelope::_Internal {
  public:
 };
@@ -2385,12 +2346,12 @@ Envelope::Envelope(const Envelope& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_payload().empty()) {
-    payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_payload(),
+    payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_payload(), 
       GetArena());
   }
   signature_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature().empty()) {
-    signature_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature(),
+    signature_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:common.Envelope)
@@ -2435,14 +2396,13 @@ void Envelope::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  signature_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  payload_.ClearToEmpty();
+  signature_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* Envelope::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2605,14 +2565,6 @@ void Envelope::InternalSwap(Envelope* other) {
 
 // ===================================================================
 
-void Block::InitAsDefaultInstance() {
-  ::common::_Block_default_instance_._instance.get_mutable()->header_ = const_cast< ::common::BlockHeader*>(
-      ::common::BlockHeader::internal_default_instance());
-  ::common::_Block_default_instance_._instance.get_mutable()->data_ = const_cast< ::common::BlockData*>(
-      ::common::BlockData::internal_default_instance());
-  ::common::_Block_default_instance_._instance.get_mutable()->metadata_ = const_cast< ::common::BlockMetadata*>(
-      ::common::BlockMetadata::internal_default_instance());
-}
 class Block::_Internal {
  public:
   static const ::common::BlockHeader& header(const Block* msg);
@@ -2661,8 +2613,9 @@ Block::Block(const Block& from)
 
 void Block::SharedCtor() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_Block_common_2fcommon_2eproto.base);
-  ::memset(&header_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&metadata_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&header_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&metadata_) -
       reinterpret_cast<char*>(&header_)) + sizeof(metadata_));
 }
 
@@ -2717,7 +2670,6 @@ void Block::Clear() {
 
 const char* Block::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2911,8 +2863,6 @@ void Block::InternalSwap(Block* other) {
 
 // ===================================================================
 
-void BlockHeader::InitAsDefaultInstance() {
-}
 class BlockHeader::_Internal {
  public:
 };
@@ -2928,12 +2878,12 @@ BlockHeader::BlockHeader(const BlockHeader& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   previous_hash_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_previous_hash().empty()) {
-    previous_hash_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_previous_hash(),
+    previous_hash_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_previous_hash(), 
       GetArena());
   }
   data_hash_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_data_hash().empty()) {
-    data_hash_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_data_hash(),
+    data_hash_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_data_hash(), 
       GetArena());
   }
   number_ = from.number_;
@@ -2980,15 +2930,14 @@ void BlockHeader::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  previous_hash_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  data_hash_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  previous_hash_.ClearToEmpty();
+  data_hash_.ClearToEmpty();
   number_ = PROTOBUF_ULONGLONG(0);
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* BlockHeader::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -3175,8 +3124,6 @@ void BlockHeader::InternalSwap(BlockHeader* other) {
 
 // ===================================================================
 
-void BlockData::InitAsDefaultInstance() {
-}
 class BlockData::_Internal {
  public:
 };
@@ -3236,7 +3183,6 @@ void BlockData::Clear() {
 
 const char* BlockData::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -3378,8 +3324,6 @@ void BlockData::InternalSwap(BlockData* other) {
 
 // ===================================================================
 
-void BlockMetadata::InitAsDefaultInstance() {
-}
 class BlockMetadata::_Internal {
  public:
 };
@@ -3439,7 +3383,6 @@ void BlockMetadata::Clear() {
 
 const char* BlockMetadata::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -3581,10 +3524,6 @@ void BlockMetadata::InternalSwap(BlockMetadata* other) {
 
 // ===================================================================
 
-void OrdererBlockMetadata::InitAsDefaultInstance() {
-  ::common::_OrdererBlockMetadata_default_instance_._instance.get_mutable()->last_config_ = const_cast< ::common::LastConfig*>(
-      ::common::LastConfig::internal_default_instance());
-}
 class OrdererBlockMetadata::_Internal {
  public:
   static const ::common::LastConfig& last_config(const OrdererBlockMetadata* msg);
@@ -3605,7 +3544,7 @@ OrdererBlockMetadata::OrdererBlockMetadata(const OrdererBlockMetadata& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   consenter_metadata_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_consenter_metadata().empty()) {
-    consenter_metadata_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_consenter_metadata(),
+    consenter_metadata_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_consenter_metadata(), 
       GetArena());
   }
   if (from._internal_has_last_config()) {
@@ -3655,7 +3594,7 @@ void OrdererBlockMetadata::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  consenter_metadata_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  consenter_metadata_.ClearToEmpty();
   if (GetArena() == nullptr && last_config_ != nullptr) {
     delete last_config_;
   }
@@ -3665,7 +3604,6 @@ void OrdererBlockMetadata::Clear() {
 
 const char* OrdererBlockMetadata::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);

@@ -21,7 +21,7 @@ import (
 	"websto"
 	"syscall/js"
 	"sync/atomic"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"strings"
 	//"fmt"
 )

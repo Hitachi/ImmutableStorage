@@ -6,17 +6,23 @@ replace immledger => ../immledger
 
 replace immblock => ../immblock
 
+replace immsign => ../immsign
+
+replace immclient => ../../web/immclient
+
+replace immop => ../../server/immop
+
 require (
-	github.com/hyperledger/fabric v1.4.12 // indirect
-	github.com/miekg/pkcs11 v1.0.3 // indirect
-	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
-	github.com/sykesm/zap-logfmt v0.0.4 // indirect
-	go.uber.org/zap v1.19.1 // indirect
-	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871 // indirect
-	golang.org/x/net v0.0.0-20211201190559-0a0e4e1bb54c // indirect
-	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
-	google.golang.org/grpc v1.42.0 // indirect
+	fabric/protos/common v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/ledger/queryresult v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/ledger/rwset v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/ledger/rwset/kvrwset v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/msp v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/peer v0.0.0-00010101000000-000000000000 // indirect
+	fabric/protos/token v0.0.0-00010101000000-000000000000 // indirect
+	golang.org/x/term v0.5.0
+	google.golang.org/grpc v1.53.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	immblock v0.0.0-00010101000000-000000000000
 	immclient v0.0.0-00010101000000-000000000000 // indirect
 	immledger v0.0.0-00010101000000-000000000000
@@ -24,8 +30,16 @@ require (
 	immsign v0.0.0-00010101000000-000000000000 // indirect
 )
 
-replace immsign => ../immsign
+replace fabric/protos/common => ../../server/fabric/protos/common
 
-replace immclient => ../../web/immclient
+replace fabric/protos/msp => ../../server/fabric/protos/msp
 
-replace immop => ../../server/immop
+replace fabric/protos/peer => ../../server/fabric/protos/peer
+
+replace fabric/protos/ledger/rwset => ../../server/fabric/protos/ledger/rwset
+
+replace fabric/protos/ledger/rwset/kvrwset => ../../server/fabric/protos/ledger/rwset/kvrwset
+
+replace fabric/protos/ledger/queryresult => ../../server/fabric/protos/ledger/queryresult
+
+replace fabric/protos/token => ../../server/fabric/protos/token

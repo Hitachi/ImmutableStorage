@@ -22,7 +22,7 @@ import (
 	"strings"
 	"fmt"
 
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	
 	"immop"
 	"immclient"

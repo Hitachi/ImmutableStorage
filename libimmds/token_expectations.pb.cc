@@ -21,13 +21,10 @@ namespace protos {
 class TokenExpectationDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<TokenExpectation> _instance;
-  const ::protos::PlainExpectation* plain_expectation_;
 } _TokenExpectation_default_instance_;
 class PlainExpectationDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<PlainExpectation> _instance;
-  const ::protos::PlainTokenExpectation* import_expectation_;
-  const ::protos::PlainTokenExpectation* transfer_expectation_;
 } _PlainExpectation_default_instance_;
 class PlainTokenExpectationDefaultTypeInternal {
  public:
@@ -42,7 +39,6 @@ static void InitDefaultsscc_info_PlainExpectation_token_2fexpectations_2eproto()
     new (ptr) ::protos::PlainExpectation();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::PlainExpectation::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_PlainExpectation_token_2fexpectations_2eproto =
@@ -57,7 +53,6 @@ static void InitDefaultsscc_info_PlainTokenExpectation_token_2fexpectations_2epr
     new (ptr) ::protos::PlainTokenExpectation();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::PlainTokenExpectation::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_PlainTokenExpectation_token_2fexpectations_2eproto =
@@ -72,7 +67,6 @@ static void InitDefaultsscc_info_TokenExpectation_token_2fexpectations_2eproto()
     new (ptr) ::protos::TokenExpectation();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::TokenExpectation::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_TokenExpectation_token_2fexpectations_2eproto =
@@ -89,15 +83,15 @@ const ::PROTOBUF_NAMESPACE_ID::uint32 TableStruct_token_2fexpectations_2eproto::
   ~0u,  // no _extensions_
   PROTOBUF_FIELD_OFFSET(::protos::TokenExpectation, _oneof_case_[0]),
   ~0u,  // no _weak_field_map_
-  offsetof(::protos::TokenExpectationDefaultTypeInternal, plain_expectation_),
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
   PROTOBUF_FIELD_OFFSET(::protos::TokenExpectation, Expectation_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::protos::PlainExpectation, _internal_metadata_),
   ~0u,  // no _extensions_
   PROTOBUF_FIELD_OFFSET(::protos::PlainExpectation, _oneof_case_[0]),
   ~0u,  // no _weak_field_map_
-  offsetof(::protos::PlainExpectationDefaultTypeInternal, import_expectation_),
-  offsetof(::protos::PlainExpectationDefaultTypeInternal, transfer_expectation_),
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
   PROTOBUF_FIELD_OFFSET(::protos::PlainExpectation, payload_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::protos::PlainTokenExpectation, _internal_metadata_),
@@ -156,10 +150,6 @@ namespace protos {
 
 // ===================================================================
 
-void TokenExpectation::InitAsDefaultInstance() {
-  ::protos::_TokenExpectation_default_instance_.plain_expectation_ = const_cast< ::protos::PlainExpectation*>(
-      ::protos::PlainExpectation::internal_default_instance());
-}
 class TokenExpectation::_Internal {
  public:
   static const ::protos::PlainExpectation& plain_expectation(const TokenExpectation* msg);
@@ -268,7 +258,6 @@ void TokenExpectation::Clear() {
 
 const char* TokenExpectation::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -419,12 +408,6 @@ void TokenExpectation::InternalSwap(TokenExpectation* other) {
 
 // ===================================================================
 
-void PlainExpectation::InitAsDefaultInstance() {
-  ::protos::_PlainExpectation_default_instance_.import_expectation_ = const_cast< ::protos::PlainTokenExpectation*>(
-      ::protos::PlainTokenExpectation::internal_default_instance());
-  ::protos::_PlainExpectation_default_instance_.transfer_expectation_ = const_cast< ::protos::PlainTokenExpectation*>(
-      ::protos::PlainTokenExpectation::internal_default_instance());
-}
 class PlainExpectation::_Internal {
  public:
   static const ::protos::PlainTokenExpectation& import_expectation(const PlainExpectation* msg);
@@ -563,7 +546,6 @@ void PlainExpectation::Clear() {
 
 const char* PlainExpectation::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -740,8 +722,6 @@ void PlainExpectation::InternalSwap(PlainExpectation* other) {
 
 // ===================================================================
 
-void PlainTokenExpectation::InitAsDefaultInstance() {
-}
 class PlainTokenExpectation::_Internal {
  public:
 };
@@ -804,7 +784,6 @@ void PlainTokenExpectation::Clear() {
 
 const char* PlainTokenExpectation::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);

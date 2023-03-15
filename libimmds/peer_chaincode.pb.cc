@@ -56,7 +56,6 @@ static void InitDefaultsscc_info_ChaincodeDeploymentSpec_peer_2fchaincode_2eprot
     new (ptr) ::protos::ChaincodeDeploymentSpec();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeDeploymentSpec::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChaincodeDeploymentSpec_peer_2fchaincode_2eproto =
@@ -71,7 +70,6 @@ static void InitDefaultsscc_info_ChaincodeID_peer_2fchaincode_2eproto() {
     new (ptr) ::protos::ChaincodeID();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeID::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_ChaincodeID_peer_2fchaincode_2eproto =
@@ -85,7 +83,6 @@ static void InitDefaultsscc_info_ChaincodeInput_peer_2fchaincode_2eproto() {
     new (ptr) ::protos::ChaincodeInput();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeInput::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChaincodeInput_peer_2fchaincode_2eproto =
@@ -99,7 +96,6 @@ static void InitDefaultsscc_info_ChaincodeInput_DecorationsEntry_DoNotUse_peer_2
     void* ptr = &::protos::_ChaincodeInput_DecorationsEntry_DoNotUse_default_instance_;
     new (ptr) ::protos::ChaincodeInput_DecorationsEntry_DoNotUse();
   }
-  ::protos::ChaincodeInput_DecorationsEntry_DoNotUse::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_ChaincodeInput_DecorationsEntry_DoNotUse_peer_2fchaincode_2eproto =
@@ -113,7 +109,6 @@ static void InitDefaultsscc_info_ChaincodeInvocationSpec_peer_2fchaincode_2eprot
     new (ptr) ::protos::ChaincodeInvocationSpec();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeInvocationSpec::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChaincodeInvocationSpec_peer_2fchaincode_2eproto =
@@ -128,7 +123,6 @@ static void InitDefaultsscc_info_ChaincodeSpec_peer_2fchaincode_2eproto() {
     new (ptr) ::protos::ChaincodeSpec();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeSpec::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<2> scc_info_ChaincodeSpec_peer_2fchaincode_2eproto =
@@ -144,7 +138,6 @@ static void InitDefaultsscc_info_LifecycleEvent_peer_2fchaincode_2eproto() {
     new (ptr) ::protos::LifecycleEvent();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::LifecycleEvent::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_LifecycleEvent_peer_2fchaincode_2eproto =
@@ -343,8 +336,6 @@ bool ConfidentialityLevel_IsValid(int value) {
 
 // ===================================================================
 
-void ChaincodeID::InitAsDefaultInstance() {
-}
 class ChaincodeID::_Internal {
  public:
 };
@@ -360,17 +351,17 @@ ChaincodeID::ChaincodeID(const ChaincodeID& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   path_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_path().empty()) {
-    path_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_path(),
+    path_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_path(), 
       GetArena());
   }
   name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_name().empty()) {
-    name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_name(),
+    name_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_name(), 
       GetArena());
   }
   version_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_version().empty()) {
-    version_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_version(),
+    version_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_version(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.ChaincodeID)
@@ -417,15 +408,14 @@ void ChaincodeID::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  path_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  name_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  version_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  path_.ClearToEmpty();
+  name_.ClearToEmpty();
+  version_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* ChaincodeID::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -645,8 +635,6 @@ void ChaincodeInput_DecorationsEntry_DoNotUse::MergeFrom(
 
 // ===================================================================
 
-void ChaincodeInput::InitAsDefaultInstance() {
-}
 class ChaincodeInput::_Internal {
  public:
 };
@@ -709,7 +697,6 @@ void ChaincodeInput::Clear() {
 
 const char* ChaincodeInput::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -915,12 +902,6 @@ void ChaincodeInput::InternalSwap(ChaincodeInput* other) {
 
 // ===================================================================
 
-void ChaincodeSpec::InitAsDefaultInstance() {
-  ::protos::_ChaincodeSpec_default_instance_._instance.get_mutable()->chaincode_id_ = const_cast< ::protos::ChaincodeID*>(
-      ::protos::ChaincodeID::internal_default_instance());
-  ::protos::_ChaincodeSpec_default_instance_._instance.get_mutable()->input_ = const_cast< ::protos::ChaincodeInput*>(
-      ::protos::ChaincodeInput::internal_default_instance());
-}
 class ChaincodeSpec::_Internal {
  public:
   static const ::protos::ChaincodeID& chaincode_id(const ChaincodeSpec* msg);
@@ -962,8 +943,9 @@ ChaincodeSpec::ChaincodeSpec(const ChaincodeSpec& from)
 
 void ChaincodeSpec::SharedCtor() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_ChaincodeSpec_peer_2fchaincode_2eproto.base);
-  ::memset(&chaincode_id_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&timeout_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&chaincode_id_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&timeout_) -
       reinterpret_cast<char*>(&chaincode_id_)) + sizeof(timeout_));
 }
 
@@ -1016,7 +998,6 @@ void ChaincodeSpec::Clear() {
 
 const char* ChaincodeSpec::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1232,10 +1213,6 @@ void ChaincodeSpec::InternalSwap(ChaincodeSpec* other) {
 
 // ===================================================================
 
-void ChaincodeDeploymentSpec::InitAsDefaultInstance() {
-  ::protos::_ChaincodeDeploymentSpec_default_instance_._instance.get_mutable()->chaincode_spec_ = const_cast< ::protos::ChaincodeSpec*>(
-      ::protos::ChaincodeSpec::internal_default_instance());
-}
 class ChaincodeDeploymentSpec::_Internal {
  public:
   static const ::protos::ChaincodeSpec& chaincode_spec(const ChaincodeDeploymentSpec* msg);
@@ -1256,7 +1233,7 @@ ChaincodeDeploymentSpec::ChaincodeDeploymentSpec(const ChaincodeDeploymentSpec& 
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   code_package_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_code_package().empty()) {
-    code_package_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_code_package(),
+    code_package_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_code_package(), 
       GetArena());
   }
   if (from._internal_has_chaincode_spec()) {
@@ -1271,8 +1248,9 @@ ChaincodeDeploymentSpec::ChaincodeDeploymentSpec(const ChaincodeDeploymentSpec& 
 void ChaincodeDeploymentSpec::SharedCtor() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_ChaincodeDeploymentSpec_peer_2fchaincode_2eproto.base);
   code_package_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
-  ::memset(&chaincode_spec_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&exec_env_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&chaincode_spec_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&exec_env_) -
       reinterpret_cast<char*>(&chaincode_spec_)) + sizeof(exec_env_));
 }
 
@@ -1309,7 +1287,7 @@ void ChaincodeDeploymentSpec::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  code_package_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  code_package_.ClearToEmpty();
   if (GetArena() == nullptr && chaincode_spec_ != nullptr) {
     delete chaincode_spec_;
   }
@@ -1320,7 +1298,6 @@ void ChaincodeDeploymentSpec::Clear() {
 
 const char* ChaincodeDeploymentSpec::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1513,10 +1490,6 @@ void ChaincodeDeploymentSpec::InternalSwap(ChaincodeDeploymentSpec* other) {
 
 // ===================================================================
 
-void ChaincodeInvocationSpec::InitAsDefaultInstance() {
-  ::protos::_ChaincodeInvocationSpec_default_instance_._instance.get_mutable()->chaincode_spec_ = const_cast< ::protos::ChaincodeSpec*>(
-      ::protos::ChaincodeSpec::internal_default_instance());
-}
 class ChaincodeInvocationSpec::_Internal {
  public:
   static const ::protos::ChaincodeSpec& chaincode_spec(const ChaincodeInvocationSpec* msg);
@@ -1589,7 +1562,6 @@ void ChaincodeInvocationSpec::Clear() {
 
 const char* ChaincodeInvocationSpec::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1728,8 +1700,6 @@ void ChaincodeInvocationSpec::InternalSwap(ChaincodeInvocationSpec* other) {
 
 // ===================================================================
 
-void LifecycleEvent::InitAsDefaultInstance() {
-}
 class LifecycleEvent::_Internal {
  public:
 };
@@ -1745,7 +1715,7 @@ LifecycleEvent::LifecycleEvent(const LifecycleEvent& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   chaincode_name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_chaincode_name().empty()) {
-    chaincode_name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_chaincode_name(),
+    chaincode_name_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_chaincode_name(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.LifecycleEvent)
@@ -1788,13 +1758,12 @@ void LifecycleEvent::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  chaincode_name_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  chaincode_name_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* LifecycleEvent::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);

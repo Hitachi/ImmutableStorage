@@ -24,8 +24,8 @@ import (
 	"encoding/asn1"
 	"math/big"
 	"errors"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/msp"
+	"google.golang.org/protobuf/proto"
+	"fabric/protos/msp"
 )
 
 type ECDSASignature struct {

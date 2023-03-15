@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"encoding/pem"
 	"crypto/x509"
-	"github.com/hyperledger/fabric/protos/common"
+	"fabric/protos/common"
 )
 
 const (
