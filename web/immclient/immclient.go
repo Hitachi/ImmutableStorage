@@ -23,6 +23,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"crypto/sha256"
+	"crypto/tls"
 
 	"encoding/pem"
 	"encoding/json"
@@ -35,15 +36,15 @@ import (
 	"errors"
 	"time"
 	"strings"
+	"context"
 
-	"immop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"crypto/tls"
-	"context"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protos/ledger/queryresult"
+	"google.golang.org/protobuf/proto"
+	"fabric/protos/common"
+	"fabric/protos/ledger/queryresult"
+
+	"immop"
 )
 
 // import from github.com/cloudflare/cfssl/api
@@ -282,6 +283,7 @@ const (
 
 	StorageAdmin = "StorageAdmin"
 	GrpAdmin = "StorageGrpAdmin"
+	StorageGrpAttr = "StorageGroup"
 )
 
 func CreateCSR(username string) (privPem, csrPem []byte, retErr error) {
@@ -420,7 +422,7 @@ func (id *UserID) SendReqCA(req *ReqCAParam) error {
 	if len(reply.Errors) > 0 {
 		var errStr string
 		for _, errMsg := range reply.Errors {
-			errStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x\n", errMsg.Code)
+			errStr += errMsg.Message + ": code=" + fmt.Sprintf("0x%x", errMsg.Code)
 		}
 		
 		return errors.New(errStr)
@@ -1207,6 +1209,10 @@ func (id *UserID) ActivateChannel(url, chName string) error {
 }
 
 func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
+	return id.RecordLedgerWithFormat(url, storageGrp, key, "TraditionalFormat", msgLog)
+}
+
+func (id *UserID) RecordLedgerWithFormat(url, storageGrp, key, format, msgLog string) error {
 	conn, err := id.dial(url)
 	if err != nil {
 		return err
@@ -1215,7 +1221,7 @@ func (id *UserID) RecordLedger(storageGrp, key, msgLog, url string) error {
 
 	cli := immop.NewImmOperationClient(conn)
 
-	req := &immop.RecordLedgerReq{Key: key, Log: msgLog, StorageGroup: storageGrp, }
+	req := &immop.RecordLedgerReq{Key: key, Log: msgLog, StorageGroup: storageGrp, Format: format,}
 	req.Cred, err = id.SignMsg("RecordLedger", req)
 	if err != nil {
 		return  err
