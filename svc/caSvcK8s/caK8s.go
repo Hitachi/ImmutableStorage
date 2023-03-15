@@ -21,11 +21,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-    "context"
 
 	"strings"
-	"os/exec"
 	"crypto/x509/pkix"
+	"io"
 	"fmt"
 
 	"immutil"
@@ -37,6 +36,7 @@ const (
 	tlsKeyDir = "/etc/hyperledger/tls"
 	caCertFile = "ca.crt"
 	caPrivFile = "ca.key"
+	configFile = caDataDir+"/fabric-ca-server-config.yaml"
 )
 
 func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
@@ -85,7 +85,6 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	//startCaCmd += " -b "+caAdminName+":"+caAdminPass + " -d --cfg.identities.allowremove"
 	startCaCmd += " -b "+caAdminName+":"+caAdminPass + " --cfg.identities.allowremove"	
 	startCaCmd += " --cfg.affiliations.allowremove"
-	configFile := caDataDir+"/fabric-ca-server-config.yaml"
 
 	workVol, err := immutil.K8sGetOrgWorkVol(org)
 	if err != nil {
@@ -95,11 +94,6 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
 	if err == nil {
 		pullRegAddr += "/"
-	}
-	
-	deployClient, err := immutil.K8sGetDeploymentClient()
-	if err != nil {
-		return err
 	}
 	
 	repn := int32(1)
@@ -188,19 +182,11 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 							},						
 						},
 					},
-
 				},
 			},
 		},
 	}
 
-	result, err := deployClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("Could not create a container in a pod: %s\n", err)
-	}
-	fmt.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
-
-	// create a service
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: immutil.CAHostname,
@@ -221,17 +207,7 @@ func startCA(caAdminName, caAdminPass string, config *immutil.ImmConfig) error {
 		},
 	}
 
-	serviceClient, err := immutil.K8sGetServiceClient()
-	if err != nil {
-		return err
-	}
-	resultSvc, err := serviceClient.Create(context.TODO(), service, metav1.CreateOptions{})
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
-	
-	return nil
+	return immutil.K8sDeployPodAndService(deployment, service)
 }
 
 func stopCA(subj *pkix.Name) error {
@@ -247,46 +223,28 @@ func getCAPass(org string) (secret string, retErr error) {
 	caLabel := "app=CA"
 	basePodName := immutil.CAHostname + "." + org
 
-	for {
-		podState, ver, err := immutil.K8sGetPodState(caLabel, basePodName)
-		if err != nil {
-			return "", fmt.Errorf("failed to get a pod state: %s", err)
-		}
-
-		if podState == immutil.Ready {
-			break
-		}
-		
-		if podState == immutil.NotReady {
-			immutil.K8sWaitPodReady(ver, caLabel, basePodName)
-			continue
-		}
-
-		return "", fmt.Errorf("The CA is in an unexpected state: " + podState)
-	}
-	
-	configFile := immutil.VolBaseDir+"/"+immutil.CAHostname+"."+org+"/data/fabric-ca-server-config.yaml"
-	getPassCmd := "grep pass: " + configFile + ` | awk '{print $2;}'`
-	cmd := exec.Command("/bin/sh", "-c", getPassCmd)
-	cmdStdout, err := cmd.StdoutPipe()
+	podName, err := immutil.K8sWaitPodReadyAndGetPodName(caLabel, basePodName)
 	if err != nil {
-		return "", fmt.Errorf("failed to create a pipe: %s", err)
-	}
-	
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("could not get a secret: %s", err)
+		return "", err
 	}
 
-	passBuf := make([]byte, 256)
-	len, err := cmdStdout.Read(passBuf)
+	getPassCmd := "grep pass: " + configFile + ` | awk '{print $2;}'`
+	
+	pr, pw := io.Pipe()
+	go func() {
+		err := immutil.K8sExecCmd(podName, immutil.CAHostname, []string{"/bin/sh", "-c", getPassCmd}, nil, pw, nil)
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+
+		pw.Close()
+	}()
+
+	passBuf, err := io.ReadAll(pr)
 	if err != nil {
 		return "", fmt.Errorf("failed to read a secret in a configuration file: %s", err)
 	}
 
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("failed to execute commands: %s", err)
-	}
-
-	passBuf = passBuf[:len]
 	return strings.TrimSuffix(string(passBuf), "\n"), nil
 }
