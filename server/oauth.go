@@ -42,7 +42,6 @@ import (
 const (
 	REG_NAME_SUFFIX = "@oauth"
 	GRAPHCALLBACK_PATH = "/graphcallback"
-	HTTPD_CONFIG_FILE = "/usr/local/apache2/conf/httpd.conf"
 )
 
 type OAuthParam struct{
@@ -421,7 +420,8 @@ func createOAuthSvc(org string) (retErr error) {
 	}
 	fmt.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
 
-	err = addProxyPass(org)
+	err = immutil.AddProxyPass(immutil.HttpdHostname+"."+org,
+		GRAPHCALLBACK_PATH, `https://`+immutil.OAuthHostname+"."+org+":50053")
 	if err != nil {
 		log.Printf("%s\n", err)
 		immutil.K8sDeleteService(serviceName)
@@ -429,45 +429,6 @@ func createOAuthSvc(org string) (retErr error) {
 	}
 	
 	return nil
-}
-
-func addProxyPass(org string) (retErr error) {
-	httpdPods, retErr := immutil.K8sListPod("app=httpd")
-	if retErr != nil {
-		retErr = fmt.Errorf("failed to list pods: %s\n", retErr)
-		return
-	}
-
-	podNamePrefix := immutil.HttpdHostname + "." + org
-	var httpdPod *corev1.Pod
-	for i, item := range httpdPods.Items {
-		if strings.HasPrefix(item.Name, podNamePrefix) {
-			httpdPod = &httpdPods.Items[i]
-			break
-		}
-	}
-	if httpdPod == nil {
-		retErr = fmt.Errorf("There is no httpd pod in this cluster: %s\n", retErr)
-		return
-	}
-
-	commands := [][]string{
-		// delete old proxy pass
-		[]string{"sed", "-i", "-e", `/ProxyPass "\`+GRAPHCALLBACK_PATH+`"/d`, HTTPD_CONFIG_FILE},
-		// add new proxy pass
-		[]string{"sed", "-i", "-e", `$aProxyPass "\`+GRAPHCALLBACK_PATH+`" "https://`+immutil.OAuthHostname+"."+org+`:50053"`, HTTPD_CONFIG_FILE},
-		// restart httpd
-		[]string{"apachectl", "-k", "graceful"},
-	}
-	for _, cmd := range commands {
-		err := immutil.K8sExecCmd(httpdPod.Name, immutil.HttpdHostname, cmd)
-		if err != nil {
-			retErr = err
-			return
-		}
-	}
-	
-	return // success
 }
 
 func authenticateOAuthUser(adminID *immclient.UserID, authType, username, secret string) (retErr error) {
