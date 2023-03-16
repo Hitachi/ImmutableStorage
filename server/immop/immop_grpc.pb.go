@@ -11,7 +11,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion6
+// Requires gRPC-Go v1.32.0 or later.
+const _ = grpc.SupportPackageIsVersion7
 
 // ImmOperationClient is the client API for ImmOperation service.
 //
@@ -44,6 +45,7 @@ type ImmOperationClient interface {
 	CommCA(ctx context.Context, in *CommCARequest, opts ...grpc.CallOption) (*CommCAReply, error)
 	JPKIFunc(ctx context.Context, in *JPKIFuncRequest, opts ...grpc.CallOption) (*JPKIFuncReply, error)
 	BallotFunc(ctx context.Context, in *BallotFuncRequest, opts ...grpc.CallOption) (*BallotFuncReply, error)
+	ImmstFunc(ctx context.Context, in *ImmstFuncRequest, opts ...grpc.CallOption) (*ImmstFuncReply, error)
 }
 
 type immOperationClient struct {
@@ -297,8 +299,17 @@ func (c *immOperationClient) BallotFunc(ctx context.Context, in *BallotFuncReque
 	return out, nil
 }
 
+func (c *immOperationClient) ImmstFunc(ctx context.Context, in *ImmstFuncRequest, opts ...grpc.CallOption) (*ImmstFuncReply, error) {
+	out := new(ImmstFuncReply)
+	err := c.cc.Invoke(ctx, "/immop.ImmOperation/ImmstFunc", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImmOperationServer is the server API for ImmOperation service.
-// All implementations should embed UnimplementedImmOperationServer
+// All implementations must embed UnimplementedImmOperationServer
 // for forward compatibility
 type ImmOperationServer interface {
 	CreateService(context.Context, *CreateServiceRequest) (*Reply, error)
@@ -328,96 +339,109 @@ type ImmOperationServer interface {
 	CommCA(context.Context, *CommCARequest) (*CommCAReply, error)
 	JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error)
 	BallotFunc(context.Context, *BallotFuncRequest) (*BallotFuncReply, error)
+	ImmstFunc(context.Context, *ImmstFuncRequest) (*ImmstFuncReply, error)
+	mustEmbedUnimplementedImmOperationServer()
 }
 
-// UnimplementedImmOperationServer should be embedded to have forward compatible implementations.
+// UnimplementedImmOperationServer must be embedded to have forward compatible implementations.
 type UnimplementedImmOperationServer struct {
 }
 
-func (*UnimplementedImmOperationServer) CreateService(context.Context, *CreateServiceRequest) (*Reply, error) {
+func (UnimplementedImmOperationServer) CreateService(context.Context, *CreateServiceRequest) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateService not implemented")
 }
-func (*UnimplementedImmOperationServer) ExportService(context.Context, *ExportServiceRequest) (*ExportServiceReply, error) {
+func (UnimplementedImmOperationServer) ExportService(context.Context, *ExportServiceRequest) (*ExportServiceReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExportService not implemented")
 }
-func (*UnimplementedImmOperationServer) ListService(context.Context, *ListServiceRequest) (*ListServiceReply, error) {
+func (UnimplementedImmOperationServer) ListService(context.Context, *ListServiceRequest) (*ListServiceReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListService not implemented")
 }
-func (*UnimplementedImmOperationServer) ImportService(context.Context, *ImportServiceRequest) (*Reply, error) {
+func (UnimplementedImmOperationServer) ImportService(context.Context, *ImportServiceRequest) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportService not implemented")
 }
-func (*UnimplementedImmOperationServer) ListImportedService(context.Context, *ListImportedServiceRequest) (*ListImportedServiceSummary, error) {
+func (UnimplementedImmOperationServer) ListImportedService(context.Context, *ListImportedServiceRequest) (*ListImportedServiceSummary, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListImportedService not implemented")
 }
-func (*UnimplementedImmOperationServer) CreateChannel(context.Context, *CreateChannelRequest) (*Reply, error) {
+func (UnimplementedImmOperationServer) CreateChannel(context.Context, *CreateChannelRequest) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateChannel not implemented")
 }
-func (*UnimplementedImmOperationServer) RemoveServiceFromCh(context.Context, *RemoveServiceRequest) (*Reply, error) {
+func (UnimplementedImmOperationServer) RemoveServiceFromCh(context.Context, *RemoveServiceRequest) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveServiceFromCh not implemented")
 }
-func (*UnimplementedImmOperationServer) GetConfigBlock(context.Context, *GetConfigBlockReq) (*Block, error) {
+func (UnimplementedImmOperationServer) GetConfigBlock(context.Context, *GetConfigBlockReq) (*Block, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConfigBlock not implemented")
 }
-func (*UnimplementedImmOperationServer) JoinChannel(context.Context, *PropReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) JoinChannel(context.Context, *PropReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method JoinChannel not implemented")
 }
-func (*UnimplementedImmOperationServer) SendSignedProp(context.Context, *PropReq) (*Reply, error) {
+func (UnimplementedImmOperationServer) SendSignedProp(context.Context, *PropReq) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendSignedProp not implemented")
 }
-func (*UnimplementedImmOperationServer) SendSignedPropAndRspDone(context.Context, *PropReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) SendSignedPropAndRspDone(context.Context, *PropReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendSignedPropAndRspDone not implemented")
 }
-func (*UnimplementedImmOperationServer) SendSignedPropAndRsp(context.Context, *PropReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) SendSignedPropAndRsp(context.Context, *PropReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendSignedPropAndRsp not implemented")
 }
-func (*UnimplementedImmOperationServer) SendSignedPropOrderer(context.Context, *PropReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) SendSignedPropOrderer(context.Context, *PropReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendSignedPropOrderer not implemented")
 }
-func (*UnimplementedImmOperationServer) ActivateChannel(context.Context, *ActivateChannelReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) ActivateChannel(context.Context, *ActivateChannelReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ActivateChannel not implemented")
 }
-func (*UnimplementedImmOperationServer) InstallChainCode(context.Context, *InstallCC) (*Prop, error) {
+func (UnimplementedImmOperationServer) InstallChainCode(context.Context, *InstallCC) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InstallChainCode not implemented")
 }
-func (*UnimplementedImmOperationServer) Instantiate(context.Context, *InstantiateReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) Instantiate(context.Context, *InstantiateReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Instantiate not implemented")
 }
-func (*UnimplementedImmOperationServer) ListChannelInPeer(context.Context, *Credential) (*Prop, error) {
+func (UnimplementedImmOperationServer) ListChannelInPeer(context.Context, *Credential) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChannelInPeer not implemented")
 }
-func (*UnimplementedImmOperationServer) ListChannelInMyOU(context.Context, *Credential) (*Prop, error) {
+func (UnimplementedImmOperationServer) ListChannelInMyOU(context.Context, *Credential) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChannelInMyOU not implemented")
 }
-func (*UnimplementedImmOperationServer) ListChainCode(context.Context, *ListChainCodeReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) ListChainCode(context.Context, *ListChainCodeReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChainCode not implemented")
 }
-func (*UnimplementedImmOperationServer) RecordLedger(context.Context, *RecordLedgerReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) RecordLedger(context.Context, *RecordLedgerReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordLedger not implemented")
 }
-func (*UnimplementedImmOperationServer) ReadLedger(context.Context, *ReadLedgerReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) ReadLedger(context.Context, *ReadLedgerReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadLedger not implemented")
 }
-func (*UnimplementedImmOperationServer) QueryBlockByTxID(context.Context, *QueryBlockByTxIDReq) (*Prop, error) {
+func (UnimplementedImmOperationServer) QueryBlockByTxID(context.Context, *QueryBlockByTxIDReq) (*Prop, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryBlockByTxID not implemented")
 }
-func (*UnimplementedImmOperationServer) RegisterUser(context.Context, *RegisterUserRequest) (*Reply, error) {
+func (UnimplementedImmOperationServer) RegisterUser(context.Context, *RegisterUserRequest) (*Reply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterUser not implemented")
 }
-func (*UnimplementedImmOperationServer) EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error) {
+func (UnimplementedImmOperationServer) EnrollUser(context.Context, *EnrollUserRequest) (*EnrollUserReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EnrollUser not implemented")
 }
-func (*UnimplementedImmOperationServer) CommCA(context.Context, *CommCARequest) (*CommCAReply, error) {
+func (UnimplementedImmOperationServer) CommCA(context.Context, *CommCARequest) (*CommCAReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CommCA not implemented")
 }
-func (*UnimplementedImmOperationServer) JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error) {
+func (UnimplementedImmOperationServer) JPKIFunc(context.Context, *JPKIFuncRequest) (*JPKIFuncReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method JPKIFunc not implemented")
 }
-func (*UnimplementedImmOperationServer) BallotFunc(context.Context, *BallotFuncRequest) (*BallotFuncReply, error) {
+func (UnimplementedImmOperationServer) BallotFunc(context.Context, *BallotFuncRequest) (*BallotFuncReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BallotFunc not implemented")
 }
+func (UnimplementedImmOperationServer) ImmstFunc(context.Context, *ImmstFuncRequest) (*ImmstFuncReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImmstFunc not implemented")
+}
+func (UnimplementedImmOperationServer) mustEmbedUnimplementedImmOperationServer() {}
 
-func RegisterImmOperationServer(s *grpc.Server, srv ImmOperationServer) {
-	s.RegisterService(&_ImmOperation_serviceDesc, srv)
+// UnsafeImmOperationServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ImmOperationServer will
+// result in compilation errors.
+type UnsafeImmOperationServer interface {
+	mustEmbedUnimplementedImmOperationServer()
+}
+
+func RegisterImmOperationServer(s grpc.ServiceRegistrar, srv ImmOperationServer) {
+	s.RegisterService(&ImmOperation_ServiceDesc, srv)
 }
 
 func _ImmOperation_CreateService_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -906,7 +930,28 @@ func _ImmOperation_BallotFunc_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-var _ImmOperation_serviceDesc = grpc.ServiceDesc{
+func _ImmOperation_ImmstFunc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImmstFuncRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImmOperationServer).ImmstFunc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/immop.ImmOperation/ImmstFunc",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImmOperationServer).ImmstFunc(ctx, req.(*ImmstFuncRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ImmOperation_ServiceDesc is the grpc.ServiceDesc for ImmOperation service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ImmOperation_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "immop.ImmOperation",
 	HandlerType: (*ImmOperationServer)(nil),
 	Methods: []grpc.MethodDesc{
@@ -1017,6 +1062,10 @@ var _ImmOperation_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BallotFunc",
 			Handler:    _ImmOperation_BallotFunc_Handler,
+		},
+		{
+			MethodName: "ImmstFunc",
+			Handler:    _ImmOperation_ImmstFunc_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

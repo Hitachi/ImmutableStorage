@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+
+<head>
+  <link rel="stylesheet" href="ImmutableDS.css">
+  <meta charset="utf-8">
+  <title>Rsyslog Configuration in This Cluster</title>
+</head>
+
+<body>
+  <script src="wasm_exec.js"></script>
+  <script>
+    if (!WebAssembly.instantiateStreaming) { // polyfill
+		WebAssembly.instantiateStreaming = async (resp, importObject) => {
+			const source = await (await resp).arrayBuffer();
+			return await WebAssembly.instantiate(source, importObject);
+		};
+	}
+    
+    const go = new Go();
+    let mod, inst;
+    WebAssembly.instantiateStreaming(fetch("rsyslogconfig.wasm"), go.importObject).then( async(result) => {
+      mod = result.module;
+      inst = result.instance;
+      await go.run(inst);
+    });
+  </script>
+
+  <div id="rsyslogconfigContent"></div>
+  <div id="reqBox" class="reqbox">
+    <div id="reqBoxContent" class="reqboxcontent">
+    </div>
+  </div>
+  
+</body>
+</html>

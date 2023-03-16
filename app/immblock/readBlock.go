@@ -17,19 +17,22 @@ limitations under the License.
 package immblock
 
 import (
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/common"
-	pp "github.com/hyperledger/fabric/protos/peer"
-	"github.com/hyperledger/fabric/protos/ledger/rwset"
-	"github.com/hyperledger/fabric/protos/ledger/rwset/kvrwset"
 	
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/hex"
+	"encoding/asn1"
 	"math/big"
 	"time"
 	"errors"
 	"strconv"
+	
+	"google.golang.org/protobuf/proto"
+	"fabric/protos/common"
+	pp "fabric/protos/peer"
+	"fabric/protos/ledger/rwset"
+	"fabric/protos/ledger/rwset/kvrwset"
+
 	"immsign"
 	//	"fmt"
 )
@@ -90,16 +93,30 @@ func ReadBlocks(blocks []byte) (retStr string, retErr error) {
 	return
 }
 
+type blockHeaderB struct{
+	Number int64
+	PreviousHash []byte
+	DataHash []byte
+}
+
 func ReadBlock(block *common.Block) (retStr string, retErr error) {
 	bEnvelope := &common.Envelope{}
 	payload := &common.Payload{}
 	chHdr := &common.ChannelHeader{}
-	signHdr := &common.SignatureHeader{}	
+	signHdr := &common.SignatureHeader{}
+
+	blockHeader := blockHeaderB{
+		Number: int64(block.Header.Number),
+		PreviousHash: block.Header.PreviousHash,
+		DataHash: block.Header.DataHash,
+	}
+	blockHeaderAsn1, _ := asn1.Marshal(blockHeader)
+	blockHeaderHash := sha256.New().Sum(blockHeaderAsn1)
 
 	retStr += "Number: " + strconv.Itoa(int(block.Header.Number))
 	retStr += ", block size: " + strconv.Itoa(proto.Size(block)) + LB
 	retStr += "previous header sum: " + hex.EncodeToString(block.Header.PreviousHash) + LB
-	retStr += "calculated header sum: " + hex.EncodeToString(block.Header.Hash()) + LB
+	retStr += "calculated header sum: " + hex.EncodeToString(blockHeaderHash) + LB
 	
 
 	//	fmt.Printf("%s\n", proto.MarshalTextString(block))
@@ -124,7 +141,7 @@ func ReadBlock(block *common.Block) (retStr string, retErr error) {
 		}
 		
 		verifiedData := append(meta.Value, metaSign.SignatureHeader...)
-		verifiedData = append(verifiedData, block.Header.Bytes()...)
+		verifiedData = append(verifiedData, blockHeaderAsn1...)
 		strGrpCert, err := immsign.VerifySignatureCreator(signHdr.Creator, metaSign.Signature, verifiedData)
 		verifyS := "verification failure"
 		strGrpName := "unknown"

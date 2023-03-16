@@ -24,13 +24,14 @@ import (
 	"encoding/json"
 	"time"
 	"errors"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	
 	"immclient"
 	"immop"
 	"websto"
 	wu "webutil"
 	"webcli"
+	"immadmin"
 )
 
 func RegisterCallback() {
@@ -57,6 +58,7 @@ func RegisterCallback() {
 	gl.Set("changeSecret", js.FuncOf(changeSecret))
 	gl.Set("exportKey", js.FuncOf(exportKey))
 	gl.Set("encryptKey", js.FuncOf(encryptKey))
+	gl.Set("setPermGrpMember", js.FuncOf(setPermGrpMember))
 
 	wu.InitTab("openTab")
 	wu.RegisterTab("enroll", updateEnrollContent)
@@ -134,43 +136,16 @@ func MakeFirstTabs(){
 }
 
 func updateEnrollContent(tabC *js.Value) {
-	html := `
-      <h3>Enroll user</h3>
+	html := `<h3>Enroll user</h3>`
 
-      <div class="cert-area">
-        <div class="row">
-          <div class="cert-item">
-          <label for="username">Username</label>
-          </div>
-          <div class="cert-input">
-            <input type="text" id="username">
-          </div>
-        </div>
-        
-        <div class="row">
-          <div class="cert-item">
-            <label for="secret">Secret</label>
-          </div>
-          <div class="cert-input">
-            <input type="password" id="secret">
-          </div>
-        </div>
-        
-        <div class="row">
-          <br>
-          <div class="immDSBtn">
-            <button onClick="enroll();" id="enrollButtion">Enroll user</button>
-          </div>
-        </div>
-        
-      </div>
-      <div class="row">
-        <p id="result"></p>
-      </div>
-`
+	items := wu.InitItems()
+	items.AppendTextInput("username", "Username", "", "")
+	items.AppendPasswordInput("secret", "Secret", "", "")
+	items.AppendButton("Enroll user", "enroll")
+	items.AppendRow(`<p id="result"></p>`)
+	html += items.MakeHTML()
 	tabC.Set("innerHTML", html)
 }
-	
 
 func enroll(this js.Value, i []js.Value) interface{} {
 	doc := js.Global().Get("document")
@@ -359,8 +334,8 @@ func updateSwitchUserContent(tabContent *js.Value) {
 	}
 
 	html := "<h3>Switch User</h3>\n"
-	html += `<div class="cert-area" id="switchUserArea">`
-	html += "<p>Select a user:</p>"
+	items := wu.InitItems()
+	items.AppendRow("<p>Select a user:</p>")
 	for _, username := range websto.ListUsername() {
 		checked := ""
 		if username == curUsername {
@@ -371,13 +346,9 @@ func updateSwitchUserContent(tabContent *js.Value) {
 		if websto.IsPasswordRequired(username) {
 			passRequired = ":  password required"
 		}
-		
-		html += `<label class="radioArea">` + username + passRequired
-		html += `  <input type="radio" onchange="switchUser(event)" name="clientUser" value="` +username +`" ` +checked +">"
-		html += `  <span class="radioBox"></span>`
-		html += "</label>"
+		items.AppendRadioButton("clientUser",  username + passRequired, username, `onchange="switchUser(event)" `+checked)
 	}
-	html += "</div>"
+	html += items.MakeHTML()
 
 	tabContent.Set("innerHTML", html)
 }
@@ -444,41 +415,18 @@ func updateUserContent(tabC *js.Value) {
 }
 
 func makeRegisterTab() string {
-	uType := []struct{
-		Name string
-		Title string
-	}{
+	uType := []wu.SelectOptList{
 		{"AppUser", "Application user"},
 		{"StorageAdmin", "Storage service administrator"},
 		{"StorageGrpAdmin", "Storage group administrator"},
 	}
 
-	options := ""
-	for _, userT := range uType{
-		options += `<option value="`+userT.Name+`">`+userT.Title+`</option>`
-	}
-
-	html := `
-      <div class="cert-area">
-        <div class="row">
-          <div class="cert-item"><label for="type">User type</label></div>
-          <div class="cert-input">
-            <select id="userType" onchange="selectedUserType()">` + options + `
-	        </select>
-          </div>
-        </div>
-        <div id="userAttributeArea"></div>
-        <div class="row">
-          <div class="immDSBtn">
-            <button onClick="register()" id="registerButton">Register</button>
-          </div>
-        </div>
-        <div class="row">
-          <p id="registerResult"></p>
-        </div>
-      </div>`
-
-	return html
+	items := wu.InitItems()
+	items.AppendSelectListWithFunc("userType", "User type", "selectedUserType", uType)
+	items.AppendHTML(`<div id="userAttributeArea"></div>`)
+	items.AppendButton("Register", "register")
+	items.AppendRow(`<p id="registerResult"></p>`)
+	return items.MakeHTML()
 }
 
 func updateRegisterContent(tabC *js.Value) {
@@ -495,33 +443,22 @@ func updateRegisterContent(tabC *js.Value) {
 }
 
 func updateKeyManageContent(tabC *js.Value) {
-	html := `  <div class="cert-area">`
+	privItems := wu.InitItems()
+	privItems.AppendHTML(`<button onclick="exportKey(event, 'private')" id="exportPrivKeyBtn">Export</button>`)
+	privItems.AppendHTML(`<a id="exportPrivKeyData"></a>`)
+	privItems.AppendHTML(`<button onclick="encryptKey(event)" id="encryptKeyBtn" style="margin-left: 5px;">Encrypt</button>`)
+	privItems.PackDiv(privItems.BtnC)
 	
-	html += `    <div class="row">`
-	html += `      <div class="cert-item"><label>Private key</label></div>`
-	html += `      <div class="cert-input">`	
-	html += `        <div class="immDSBtn">`
-	html += `          <button onclick="exportKey(event, 'private')" id="exportPrivKeyBtn">Export</button>`
-	html += `          <a id="exportPrivKeyData"></a>`
-	html += `          <button onclick="encryptKey(event)" id="encryptKeyBtn">Encrypt</button>`
-	html += `        </div>`
-	html += `      </div>`
-	html += `    </div>`
-	
+	certItems := wu.InitItems()
+	certItems.AppendHTML(`<button onclick="exportKey(event, 'certificate')" id="exportCertKeyBtn">Export</button>`)
+	certItems.AppendHTML(`<a id="exportCertKeyData"></a>`)
+	certItems.PackDiv(certItems.BtnC)
 
-	html += `    <div class="row">`
-	html += `      <div class="cert-item"><label>Certificate</label></div>`
-	html += `      <div class="cert-input">`	
-	html += `        <div class="immDSBtn">`
-	html += `          <button onclick="exportKey(event, 'certificate')" id="exportCertKeyBtn">Export</button>`
-	html += `          <a id="exportCertKeyData"></a>`
-	html += `        </div>`
-	html += `      </div>`
-	html += `    </div>`
+	items := wu.InitItems()
+	items.AppendLabelAndInput("Private key", privItems.GetHTML())
+	items.AppendLabelAndInput("Certificate", certItems.GetHTML())
 
-	html += `  </div>`
-
-	tabC.Set("innerHTML", html)
+	tabC.Set("innerHTML", items.MakeHTML())
 	return
 }
 
@@ -554,31 +491,29 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
 	}
 
 	go func(){
-		html := `
-        <div class="row" id="registerNameArea">
-          <div class="cert-item"><label for="registerName" id="registerNameLabel">User name</label></div>
-          <div class="cert-input">
-            <input type="text" id="registerName" oninput="inputtedRegisterName()" value="`+registerName+`">
-          </div>
-        </div>`
+		items := wu.InitItems()
+		items.AppendLabelAndInputWithID("registerNameArea", "User name",
+            `<input type="text" id="registerName" oninput="inputtedRegisterName()" value="`+registerName+`">`)
 
 		if hostName == "" { // application user
-			html += makeGeneralAppUserRegHtml()
+			authType := []wu.SelectOptList{
+				{"CA", "Certificate authority"},
+				{"LDAP", "LDAP"},
+				{"OAUTH_GRAPH", "MS Graph (OAuth2)"},
+				{"JPKI", "JPKI"},
+			}
+			items.AppendSelectListWithFunc("authType", "Authentication type", "selectedAuthType", authType)
+			items.AppendLabelAndInputWithAttr(` id="registerSecretArea" hidden`, "Secret",
+				`<input type="text" id="registerSecret">`)
+			items.AppendHTML(`<div id="authAttrArea" hidden></div>`)
 		} else { // storage or storage group administrator
-			html += `
-            <div class="row" id="registerHostnameArea">
-              <div class="cert-item"><label for="registerHost" id="registerHostLabel">Administration host</label></div>
-              <div class="cert-input">
-                <input type="text" id="registerHost" readonly="readonly" value="`+hostName+`">
-              </div>
-            </div>
-            <div class="row" id="registerSecretArea">
-              <div class="cert-item"><label for="registerSecret">Secret</label></div>
-              <div class="cert-input"><input type="text" id="registerSecret"></div>
-            </div>`
+			items.AppendLabelAndInputWithID("registerHostnameArea", "Administration host",
+                `<input type="text" id="registerHost" readonly="readonly" value="`+hostName+`">`)
+			items.AppendLabelAndInputWithAttr(` id="registerSecretArea"`, "Secret",
+				`<input type="text" id="registerSecret">`)
 		}
 
-		userAttributeArea.Set("innerHTML", html)
+		userAttributeArea.Set("innerHTML", items.GetHTML())
 
 		authTypeSel := doc.Call("getElementById", "authType")
 		if ! authTypeSel.IsNull() {
@@ -587,27 +522,6 @@ func selectedUserType(this js.Value, in []js.Value) interface{} {
 	}()
 
 	return nil
-}
-
-func makeGeneralAppUserRegHtml() string {
-	html := `
-<div class="row" id="authTypeArea">
-  <div class="cert-item"><label for="authType" id="authTypeLable">Authentication type</lable></div>
-  <div class="cert-input">
-    <select id="authType" onchange="selectedAuthType()">
-      <option value="CA">Certificate authority</option>
-      <option value="LDAP">LDAP</option>
-      <option value="OAUTH_GRAPH">MS Graph (OAuth2)</option>
-      <option value="JPKI">JPKI</option>
-    </select>
-  </div>
-</div>
-<div class="row" id="registerSecretArea" hidden>
-  <div class="cert-item"><label for="registerSecret">Secret</label></div>
-  <div class="cert-input"><input type="text" id="registerSecret"></div>
-</div>
-<div id="authAttrArea" hidden></div>`
-	return html
 }
 
 func inputtedRegisterName(this js.Value, in []js.Value) interface{} {
@@ -645,57 +559,21 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 	case "CA":
 		authAttrAreaHiddenF = true
 	case "LDAP":
-		html := `
-          <div class="row" id="bindLDAPServerArea">
-            <div class="cert-item"><label for="bindLDAPServer" id="bindLDAPServerLabel">Bind LDAP server</label></div>
-            <div class="cert-input"><input type="text" id="bindLDAPServer" value="localhost:389"></div>
-          </div>
-          <div class="row" id="bindDNArea">
-            <div class="cert-item"><label for="bindDN" id="bindDNLabel">Bind DN format</label></div>
-            <div class="cert-input"><input type="text" id="bindDN" value='"uid=%s,ou=PEOPLE,o=,c=",sn'></div>
-          </div>
-
-          <div class="row" id="queryLDAPServerArea">
-            <div class="cert-item"><label for="queryLDAPServer" id="queryLDAPServerLabel">Query LDAP server</label></div>
-            <div class="cert-input"><input type="text" id="queryLDAPServer" value="localhost:389"></div>            
-          </div>
-          <div class="row" id="queryBaseDNArea">
-            <div class="cert-item"><label for="queryBaseDN" id="queryBaseDNLabel">Query base DN</label></div>
-            <div class="cert-input"><input type="text" id="queryBaseDN" value="ou=PEOPLE,o=,c="></div>            
-          </div>
-          <div class="row" id="queryLDAPArea">
-            <div class="cert-item"><label for="queryLDAP" id="queryLDAPLabel">Query format</label></div>
-            <div class="cert-input"><input type="text" id="queryLDAP" value='"(&(objectClass=organizationalPerson)(|(department=de1)(department=de2))(mail=%s))",username'></div>
-          </div>`
-		authAttrArea.Set("innerHTML", html)
+		items := wu.InitItems()
+		items.AppendTextInput("bindLDAPServer", "Bind LDAP server", "localhost:389", "")
+		items.AppendTextInput("bindDN", "Bind DN format", `"uid=%s,ou=PEOPLE,o=,c=",sn`, "")
+		items.AppendTextInput("queryLDAPServer", "Query LDAP server", "localhost:389", "")
+		items.AppendTextInput("queryBaseDN", "Query base DN", "ou=PEOPLE,o=,c=", "")
+		items.AppendTextInput("queryLDAP", "Query format", `"(&(objectClass=organizationalPerson)(|(department=de1)(department=de2))(mail=%s))",username`, "")
+		authAttrArea.Set("innerHTML", items.GetHTML())
 		regSecretAreaHiddenF = true
 	case "JPKI":
-		html := `
-          <div class="row">
-            <p>Please select privacy information importing from the JPKI card:</p>
-          </div>
-          <div class="row">
-            <label class="radioArea">
-              <input type="radio" name="privacyInfoType" value="publicKey" checked>
-              <span class="radioBox"></span>
-              Only public keys
-            </label>
-          </div>
-          <div class="row">
-            <label class="radioArea">
-              <input type="radio" name="privacyInfoType" value="authCert">
-              <span class="radioBox"></span>
-              The authentication certificate, and a public key in the signature certificate
-            </label>
-          </div>
-          <div class="row">
-            <label class="radioArea">
-              <input type="radio" name="privacyInfoType" value="signCert">
-              <span class="radioBox"></span>
-              The authentication certificate and the signature certificate contained residential address, full name, etc.
-            </label>
-          </div>`
-		authAttrArea.Set("innerHTML", html)
+		items := wu.InitItems()
+		items.AppendRow(`<p>Please select privacy information importing from the JPKI card:</p>`)
+		items.AppendRadioButton("privacyInfoType", "publicKey", "Only public keys", "checked")
+		items.AppendRadioButton("privacyInfoType", "authCert", "The authentication certificate, and a public key in the signature certificate", "")
+		items.AppendRadioButton("privacyInfoType", "signCert", "The authentication certificate and the signature certificate contained residential address, full name, etc.", "")
+		authAttrArea.Set("innerHTML", items.GetHTML())
 		regSecretAreaHiddenF = true
 		registerNameHiddenF = true
 	case "OAUTH_GRAPH":
@@ -704,33 +582,15 @@ func selectedAuthType(this js.Value, in []js.Value) interface{} {
 		if err == nil {
 			org, _ = id.GetIssuerOrg()
 		}
-		html := `
-          <div class="row">
-            <div class="cert-item"><label for="groupName">Group name</label></div>
-            <div class="cert-input"><input type="text" id="groupName" value="group1"></div>
-		  </div>
-          <div class="row">
-            <div class="cert-item"><label for="clientID">Client ID</label></div>
-            <div class="cert-input"><input type="text" id="clientID"></div>
-		  </div>
-          <div class="row">
-            <div class="cert-item"><label for="secretValue">Client secret value</label></div>
-            <div class="cert-input"><input type="text" id="secretValue"></div>
-		  </div>
-          <div class="row">
-            <div class="cert-item"><label for="allowPrincipalDomains">Allow principal domains</label></div>
-            <div class="cert-input"><input type="text" id="allowPrincipalDomains" value="example.com"></div>
-		  </div>
-          <div class="row">
-            <div class="cert-item"><label for="redirectURL">Redirect URL</label></div>
-            <div class="cert-input"><input type="text" id="redirectURL" value="https://www.`+org+`/graphcallback" readonly></div>
-		  </div>
-          <div class="row">
-            <div class="cert-item"><label for="Login URL">Login URL</label></div>
-            <div class="cert-input"><input type="text" id="loginURL" value="https://www.`+org+`/graphcallback/login/group1" readonly></div>
-		  </div>`
-		
-		authAttrArea.Set("innerHTML", html)
+
+		items := wu.InitItems()
+		items.AppendTextInput("groupName", "Group name", "group1", "")
+		items.AppendTextInput("clientID", "Client ID", "", "")
+		items.AppendTextInput("secretValue", "Client secret value", "", "")
+		items.AppendTextInput("allowPrincipalDomains", "Allow principal domains", "", "")
+		items.AppendTextInput("redirectURL", "Redirect URL", "https://www."+org+"/graphcallback", "readonly")
+		items.AppendTextInput("loginURL", "Login URL", "https://www."+org+"/graphcallback/login/group1", "readonly")
+		authAttrArea.Set("innerHTML", items.GetHTML())
 		regSecretAreaHiddenF = true
 		registerNameHiddenF = true
 	default:
@@ -775,7 +635,7 @@ func register(this js.Value, in []js.Value) interface{}{
 
 func registerGeneralAppUser() error {
 	appendReq := &immclient.RegistrationRequest{
-		Type: "client",		
+		Type: "client",
 	}
 	return registerAppUser(appendReq)
 }
@@ -940,22 +800,14 @@ func updateActionContent(tabC *js.Value) {
 }
 
 func updateListAppsContent(tabC *js.Value) {
-	html := `<div class="cert-area">`
-	html += `<div class="listAppsArea">`
-		
-	html += `<div class="row">`
-	html += `  <div class="cert-item"><a href="readWriteLog.html">Read and Write Log</a></div>`
-	html += `</div>`
-	html += `<div class="row">`
-	html += `  <div class="cert-item"><a href="secretBallot.html">Secret Ballot</a></div>`
-	html += `</div>`
-	html += `<div class="row">`		
-	html += `  <div class="cert-item"><a href="anonymousSurvey.html">Anonymous Suvey</a></div>`
-	html += `</div>`
-		
-	html += `</div>`		
-	html += `</div>`
-	tabC.Set("innerHTML", html)
+	items := wu.InitItems()
+	items.AppendRow(`<a href="readWriteLog.html">Read and Write Log</a>`)
+	items.AppendRow(`<a href="secretBallot.html">Secret Ballot</a>`)
+	items.AppendRow(`<a href="anonymousSurvey.html">Anonymous Survey</a>`)
+	items.AppendRow(`<a href="rsyslogConfig.html">Rsyslog Configuration</a>`)
+	items.AppendRow(`<a href="st2web/index.html">Workflow</a>`)
+	items.PackDiv("listAppsArea")
+	tabC.Set("innerHTML", items.MakeHTML())
 }
 
 var storageSvcContentLock = int32(0)
@@ -976,24 +828,21 @@ func updateStorageSvcContent(tabC *js.Value) {
 	}
 	hostname := storageHost
 
-	html := `<div class="cert-area">`
-	html += `<div class="serviceRow">`
-	html += `<p class="serviceName">`+hostname+`</p>`
-	html += `<div class="serviceCreateBtn">`
-	html += `  <div class="immDSBtn">`
-	html += `  <button onclick="exportService(event)" name="`+hostname+`">Export</button>`
-	html += `  <label for="joinChannelFile">Join</label>`
-	html += `  <input type="file" id="joinChannelFile" accept=".block" onchange=joinChannel(event) hidden name="`+hostname+`">`
-	html += `  </div>`
-	html += `  <a id="exportServiceConf`+hostname+`"></a>`
-	html += `</div>`
-	html += "</div>"
-	html += `<div id="storageGrpState">`
-	html += `</div>`
-	html += "</div>"
-
-	tabC.Set("innerHTML", html)
-	updateStorageGrpState()
+	storageSvcI:= wu.InitItems()
+	storageSvcI.AppendHTML(`<button onclick="exportService(event)" name="`+hostname+`">Export</button>`)
+	storageSvcI.AppendHTML(`<label for="joinChannelFile" style="margin-left: 5px;">Join</label>`)
+	storageSvcI.AppendHTML(`<input type="file" id="joinChannelFile" accept=".block" onchange=joinChannel(event) hidden name="`+hostname+`">`)
+	storageSvcI.AppendHTML(`<a id="exportServiceConf`+hostname+`"></a>`)
+	storageSvcI.PackDiv(storageSvcI.BtnC)
+	storageSvcI.PackDiv("serviceCreateBtn")
+	
+	items := wu.InitItems()
+	items.LabelC = "serviceName"
+	items.InputC = "serviceState"
+	items.AppendLabelAndInput(hostname, storageSvcI.GetHTML())
+	items.AppendHTML(`<div id="storageGrpState"></div>`)
+	tabC.Set("innerHTML", items.MakeHTML())
+	updateStorageGrpState()	
 }
 
 var exportServiceLock = int32(0)
@@ -1066,34 +915,48 @@ func updateStorageGrpContent(tabC *js.Value) {
 
 	org, _ := id.GetIssuerOrg()
 
-	html := `<div class="cert-area">`
-	html += `<div class="row">`
-	html += `<div id="storageGroupName">`
-	html += `  <div class="row">`
-	html += `    <div class="cert-item"><label><b>Storage group name: </b></label></div>`
-	html += `    <div class="cert-input"><label><b>` + strings.TrimSuffix(grpAdminHost, "."+org) + `</b></label></div>`
-	html += `  </div>`
-	html += `</div>`
-	html += "<hr>"
-	html += `<div id="anchorPeers"></div>`
-	html += `<div class="row">`
-	html += `  <div class="cert-item"><label>Add storage service</label></div>`
-	html += `  <div class="cert-input">`
-	html += `    <div class="immDSBtn">`
-	html += `      <label for="serviceConfFile">Import</lable>`
-	html += `      <input type="file" id="serviceConfFile" accept=".dat" onchange=addAnchorPeer(event) hidden>`
-	html += `    </div>`
-	html += `  </div>`
-	html += `</div>`
-	html += `<div class="immDSBtn">`
-	html += `  <button onclick="exportChannel(event)" id="exportChannelBtn" hidden>Export</button>`
-	html += `  <a id="exportChannelData"></a>`
-	html += `</div>`
-	html += `</div>`
+	accessPerm, err := immadmin.GetStorageGrpPerm(id, url)
+	if err != nil {
+		print("log: " + err.Error() + "\n")
+		return
+	}
+
+	permChecked := ""
+	if accessPerm == immadmin.AccessPermGrpMember {
+		permChecked = " checked"
+	}
+		
+	items := wu.InitItems()
+	items.AppendLabelAndInputWithAttr("", `<b>Storage group name: </b>`, `<label><b>` + strings.TrimSuffix(grpAdminHost, "."+org) + `</b></label>`)
+	items.AppendHTML("<hr>")
+	items.AppendCheckbox("Set access rights to group members only", `id="accessPerm" onchange=setPermGrpMember(event)`+permChecked)
+	items.AppendHTML(`<div id="anchorPeers"></div>`)
+	items.AppendReadFileButton("serviceConfFile", "Add storage service",
+		"Import", `accept=".dat" onchange=addAnchorPeer(event) hidden`)
+	items.AppendSaveFileButton("exportChannelData", "Export", "exportChannel", "hidden")
 	
+	html := items.MakeHTML()
 	tabC.Set("innerHTML", html)
 
 	updateAnchorPeers()
+}
+
+func setPermGrpMember(this js.Value, in []js.Value) interface{} {
+	target := in[0].Get("target")
+
+	perm := immadmin.AccessPermAll
+	if target.Get("checked").Bool() == true {
+		perm = immadmin.AccessPermGrpMember
+	}
+
+	url := wu.GetImmsrvURL()
+	id, err := websto.GetCurrentID()
+	if err != nil {
+		return nil
+	}
+	
+	go immadmin.SetStorageGrpPerm(id, url, perm)
+	return nil
 }
 
 func updateAnchorPeers() {
@@ -1120,46 +983,20 @@ func updateAnchorPeers() {
 		exportChBtn.Set("hidden", true)
 	}
 
-	var html string
+	items := wu.InitItems()
 	for _, anchor := range listAnchor {
-		html += `<div class="row">`
-		html += `  <div class="cert-item"><label>` + anchor.Hostname + ":" + anchor.Port + "</label></div>"
-		html += `  <div class="cert-input">`
-		html += `    <div class="immDSBtn">`
-		html += `      <button onclick="removeService(event)" name="`+anchor.Hostname+":"+anchor.Port+`">Remove</button>`
-		html += "    </div>"
-		html += "  </div>"
-		html += "</div>"
+		hostname := anchor.Hostname + ":" + anchor.Port
+		items.AppendButtonWithDsc(hostname, hostname, "Remove", "removeService")
 	}
 
-	anchorArea.Set("innerHTML", html)
+	anchorArea.Set("innerHTML", items.GetHTML())
 }
 
 func addAnchorPeer(this js.Value, in []js.Value) interface{} {
 	go func() {
-		gl := js.Global()
 		fileList := in[0].Get("target")
 		peerDataFile := fileList.Get("files").Index(0)
-		peerDataCh := make(chan []byte, 1)
-		
-		fileReader := gl.Get("FileReader").New()
-		fileReaderCompFunc := js.FuncOf(func(this js.Value, event []js.Value) interface{} {
-			readData := gl.Get("Uint8Array").New(event[0].Get("target").Get("result"))
-			readByte := make([]byte, readData.Get("byteLength").Int())
-			js.CopyBytesToGo(readByte, readData)
-			
-			peerDataCh <- readByte
-			return nil
-		})
-		defer fileReaderCompFunc.Release()
-
-		fileReader.Set("onload", fileReaderCompFunc)
-		fileReader.Call("readAsArrayBuffer", peerDataFile)
-
-		var peerData []byte
-		select {
-		case peerData = <- peerDataCh:
-		}
+		peerData := wu.ReadFile(peerDataFile)
 
 		id, err := websto.GetCurrentID()
 		if err != nil {
@@ -1196,26 +1033,9 @@ func joinChannel(this js.Value, in []js.Value) interface{} {
 	url := wu.GetImmsrvURL()
 
 	go func() {
-		gl := js.Global()
 		fileList := in[0].Get("target")
 		dataFile := fileList.Get("files").Index(0)
-		dataCh := make(chan []byte, 1)
-
-		fileReader := gl.Get("FileReader").New()
-		fileReaderCompFunc := js.FuncOf(func(this js.Value, event []js.Value) interface{} {
-			readData := gl.Get("Uint8Array").New(event[0].Get("target").Get("result"))
-			readByte := make([]byte, readData.Get("byteLength").Int())
-			js.CopyBytesToGo(readByte, readData)
-			
-			dataCh <- readByte
-			return nil
-		})
-		defer fileReaderCompFunc.Release()
-
-		fileReader.Set("onload", fileReaderCompFunc)
-		fileReader.Call("readAsArrayBuffer", dataFile)
-
-		block := <- dataCh
+		block := wu.ReadFile(dataFile)
 
 		id, err := websto.GetCurrentID()
 		if err != nil {
@@ -1266,8 +1086,13 @@ func updateStorageGrpState() {
 	
 	html := "Loading..."
 	storageGrpState.Set("innerHTML", html)
+
+	items := wu.InitItems()
+	items.LabelC = "serviceName"
+	items.InputC = "serviceState"
 	
-	html = `<hr><div class="serviceRow">Group</div>`
+	html = "<hr>"
+	items.AppendRow("Group")
 	for _, chName := range chNames {
 		var chainCodeF bool
 		chainCodes, err := id.ListChainCode(url, chName)
@@ -1276,21 +1101,15 @@ func updateStorageGrpState() {
 		}
 		
 		grpHost := strings.TrimSuffix(chName, "-ch")
-		html += `<div class="serviceRow">`
-		html += `<p class="serviceName">- `+grpHost+`</p>`
-		html += `<div class="serviceCreateBtn">`
+		grpHostDsc := "- " + grpHost
 		if chainCodeF {
-			html += `  <label>Available</lable>`
+			items.AppendLabelAndInput(grpHostDsc, `<label style="margin-left: 12px;">Available</label>`)
 		} else {
-			html += `  <div class="immDSBtn">`
-			html += `  <button onclick="enableChannel(event)" name="`+chName+`" id="enableChannelBtn">Enable</button>`
-			html += `  </div>`
+			items.AppendButtonWithDsc(chName, grpHostDsc, "Enable", "enableChannel")
 		}
-		html += `</div>`
-		html += `</div>`
 	}
-
-	storageGrpState.Set("innerHTML", html)
+	html += items.GetHTML()
+	storageGrpState.Set("innerHTML", html)	
 }
 
 var exportChannelLock = int32(0)

@@ -32,11 +32,11 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/common"
-	pp "github.com/hyperledger/fabric/protos/peer"
-	"github.com/hyperledger/fabric/protos/ledger/rwset"
-	"github.com/hyperledger/fabric/protos/ledger/rwset/kvrwset"
+	"google.golang.org/protobuf/proto"
+	"fabric/protos/common"
+	pp "fabric/protos/peer"
+	"fabric/protos/ledger/rwset"
+	"fabric/protos/ledger/rwset/kvrwset"
 	
 	"immclient"
 	"immop"

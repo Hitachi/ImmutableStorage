@@ -20,13 +20,6 @@ import (
 	"log"
 	"net"
 
-	"immop"
-	"immutil"
-	"fabconf"
-	"immclient"
-	"cacli"
-	"jpkicli"
-	"ballotcli"
 
 	"context"
 	"google.golang.org/grpc"
@@ -34,9 +27,10 @@ import (
 	"google.golang.org/grpc/credentials"
 	gstatus "google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"fmt"
-
 	"math"
 	"math/big"
 	"encoding/pem"
@@ -52,33 +46,37 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"time"
+	"archive/tar"
+	"strings"
+	"bytes"
+	"strconv"
+	"os"
+	"sync/atomic"
+	"sync"
+	"gopkg.in/yaml.v2"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	"archive/tar"
-	"strings"
-	"bytes"
-	"strconv"
-	"os"
 
-	"github.com/golang/protobuf/proto"
+	"fabric/protos/msp"
+	"fabric/protos/common"
+	pp "fabric/protos/peer"
+	po "fabric/protos/orderer"
 
-	"github.com/hyperledger/fabric/protos/msp"
-	"github.com/hyperledger/fabric/protos/common"
+	"fabric/channelconfig"
 
-	pp "github.com/hyperledger/fabric/protos/peer"
-	po "github.com/hyperledger/fabric/protos/orderer"
-	"github.com/hyperledger/fabric/protos/utils"
-	"github.com/hyperledger/fabric/core/scc/cscc"
-	"github.com/hyperledger/fabric/common/cauthdsl"
-	"github.com/hyperledger/fabric/common/channelconfig"
-
-	"sync/atomic"
-	"sync"
-	"gopkg.in/yaml.v2"
+	"immop"
+	"immutil"
+	"fabconf"
+	"immclient"
+	"immcommon"
+	"st2mng"
+	"cacli"
+	"jpkicli"
+	"ballotcli"
 )
 
 const (
@@ -87,6 +85,8 @@ const (
 	privPath = "/var/lib/immsrv/keys/server.key"
 
 	couchdbHostPrefix = "couchdb"
+	grpcProxySvcPrefix = "gproxy"
+	
 
 	hostKeyDir = "key"
 	hostConfDir = "conf"
@@ -123,7 +123,12 @@ const (
 	storageAdminAttr = "StorageAdmin"
 	grpAdminOU = "StorageGrpAdmin"
 
-	storageGrpPort = 7050
+	// storageGrpPort = 7050
+	storageGrpPort = 443 // equal to the ingress port
+	storageGrpPortStr = "443"
+	storagePort = 443 // equal to the ingress port
+	storagePortStr = "443"
+	grpcProxyPort = 50070
 
 	affnJPKIPrefix = "FedJPKI:"
 	affnLDAPPrefix = "FedLDAP:"
@@ -155,6 +160,7 @@ type server struct{
 	parentCertPem []byte
 	org string
 	signer map[string]*signerState
+	immop.UnimplementedImmOperationServer
 }
 
 type ECDSASignature struct {
@@ -169,11 +175,13 @@ type channelConf struct {
 	TlsCACerts map[string] string `yaml:"TlsCACerts"`
 	CACerts map[string] string `yaml:"CACerts"`
 	ClientOU string `yaml:"ClientOU"`
+	AccessPermission string `yaml:"AccessPermission"`
 }
 
 func (s *server) checkCredential(funcName string, reqParam proto.Message) (*x509.Certificate, error) {
 	param := proto.Clone(reqParam)
-	credMsg := proto.MessageReflect(param)
+	//	credMsg := proto.MessageReflect(param)
+	credMsg := param.ProtoReflect()
 	parentMsg := credMsg
 
 	reqFields := credMsg.Descriptor().Fields()
@@ -307,7 +315,7 @@ func (s *server) setSignatureCh(desc string, cert *x509.Certificate, grpHost str
 	}
 
 	signer := new(signerState)
-	taskID, _ := generateTxID(cert.Raw)
+	taskID, _ := fabconf.GenerateTxID(cert.Raw)
 	s.signer[taskID] = signer
 	signer.parent = &s.signer
 	signer.taskID = taskID
@@ -522,10 +530,7 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 
 func (s *server) createOrderer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
 	mspID := fabconf.OrdererMspIDPrefix + org
-	port, err := s.allocStorageGrpPort()
-	if err != nil {
-		return err
-	}
+	port := storageGrpPortStr
 	
 	ordererEnvMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -561,40 +566,10 @@ func (s *server) createOrderer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFil
 	return nil
 }
 
-func getStorageGrpPort(grpAdminHost string) (port int32) {
-	port = storageGrpPort
-	
-	client, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return
-	}
-
-	configMap, err := client.Get(context.TODO(), grpAdminHost+"-env", metav1.GetOptions{})
-	if err != nil || configMap == nil {
-		return
-	}
-
-	portStr, ok := configMap.Data["ORDERER_GENERAL_LISTENPORT"]
-	if !ok {
-		return
-	}
-
-	envPort, err := strconv.Atoi(portStr)
-	if err != nil {
-		return
-	}
-
-	port = int32(envPort)
-	return
-}
-
-func startOrderer(serviceName string) error {
+func startOrderer(serviceName string) (retErr error) {
 	podPortName := strings.SplitN(serviceName, ":", 2)
 	podName := podPortName[0]
 	port := storageGrpPort
-	if len(podName) > 2 {
-		port, _ = strconv.Atoi(podPortName[1])
-	}
 
 	tmpStrs := strings.SplitN(podName, ".", 2)
 	shortName := tmpStrs[0]
@@ -603,14 +578,15 @@ func startOrderer(serviceName string) error {
 	
 	podState, stateVer, err := immutil.K8sGetPodState(podLabel, podName)
 	if err != nil {
-		return err
+		retErr = err
+		return
 	}
 
 	switch podState {
 	case immutil.Ready:
-		return nil
+		return
 	case immutil.NotReady:
-		return nil
+		return
 	case immutil.NotExist:
 		// nothing
 	default:
@@ -628,7 +604,8 @@ func startOrderer(serviceName string) error {
 
 	workVol, err := immutil.K8sGetOrgWorkVol(org)
 	if err != nil {
-		return err
+		retErr = err
+		return
 	}
 
 	pullRegAddr, err := immutil.GetPullRegistryAddr(org)
@@ -638,7 +615,8 @@ func startOrderer(serviceName string) error {
 	
 	deployClient, err := immutil.K8sGetDeploymentClient()
 	if err != nil {
-		return err
+		retErr = err
+		return
 	}
 
 	genesisFile := strings.Split(ordererGenesisFile, "/")
@@ -711,7 +689,7 @@ func startOrderer(serviceName string) error {
 								{
 									Name: "grpc",
 									Protocol: corev1.ProtocolTCP,
-									ContainerPort: 7050,
+									ContainerPort: int32(port),
 								},
 							},
 						},
@@ -727,7 +705,20 @@ func startOrderer(serviceName string) error {
 	}
 	log.Printf("Create deployment %q.\n", result.GetObjectMeta().GetName())
 
-		
+	var rollbackFunc []func()
+	defer func() {
+		if retErr == nil {
+			return
+		}
+
+		for i := len(rollbackFunc)-1; i >= 0; i-- {
+			rollbackFunc[i]()
+		}
+	}()
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteDeploy(deployment.Name)
+	})
+	
 	// create a service
 	service := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -745,31 +736,30 @@ func startOrderer(serviceName string) error {
 					Port: int32(port),
 					TargetPort: intstr.IntOrString{
 						Type: intstr.Int,
-						IntVal: getStorageGrpPort(podName),
+						IntVal: int32(port),
 					},
 				},
 			},
 		},
 	}
 
-	config, _, err := immutil.ReadOrgConfig(org)
-	if err == nil && len(config.ExternalIPs) > 0 {
-		service.Spec.ExternalIPs = config.ExternalIPs
-	}else{
-		service.Spec.Type = corev1.ServiceTypeLoadBalancer
-	}
-
 	serviceClient, err := immutil.K8sGetServiceClient()
 	if err != nil {
-		return err
+		retErr = err
+		return
 	}
 	resultSvc, err := serviceClient.Create(context.TODO(), service, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		retErr = err
+		return
 	}
 	log.Printf("Create service %q.\n", resultSvc.GetObjectMeta().GetName())
-	
-	return nil
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(service.Name)
+	})
+
+	retErr = immutil.K8sCreateIngress(shortName, podName, org, storageGrpPort, "GRPCS") // create an ingress
+	return
 }
 
 func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
@@ -807,10 +797,13 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 			"CORE_PEER_TLS_ROOTCERT_FILE": peerKeyDir+"/msp/tlscacerts/"+tlsCAFile,
 			"CORE_PEER_ID": hostname,
 			//			"CORE_PEER_ADDRESS": "localhost:7051",
-			"CORE_PEER_ADDRESS": hostname+":7051",
-			//"CORE_PEER_GOSSIP_BOOTSTRAP": peer1Hostname+":7051",
+			//"CORE_PEER_ADDRESS": hostname+":7051",
+			"CORE_PEER_ADDRESS": hostname+":"+storagePortStr,
+			"CORE_PEER_LISTENADDRESS": "0.0.0.0:"+storagePortStr,
+			"CORE_PEER_GOSSIP_BOOTSTRAP": "localhost:"+storagePortStr,
 			//"CORE_PEER_GOSSIP_EXTERNALENDPOINT": "localhost:7051",
-			"CORE_PEER_GOSSIP_EXTERNALENDPOINT": hostname+":7051",
+			//"CORE_PEER_GOSSIP_EXTERNALENDPOINT": hostname+":7051",
+			"CORE_PEER_GOSSIP_EXTERNALENDPOINT": hostname+":"+storagePortStr,
 			"CORE_PEER_LOCALMSPID": mspID,
 			"CORE_PEER_LOCALMSPDIR": peerKeyDir+"/msp",
 			"CORE_LEDGER_STATE_STATEDATABASE": "CouchDB",
@@ -885,6 +878,27 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	}
 	state = immutil.NotReady
 
+
+	// create a key pair for GRPC proxy
+	grpcProxySecretName, retErr := immutil.K8sCreateTLSKeyPairOnSecret(grpcProxySvcPrefix+shortName, org, false)
+	if retErr != nil {
+		return
+	}
+	var rollbackFunc []func()
+	defer func() {
+		if retErr == nil {
+			return
+		}
+
+		for i := len(rollbackFunc)-1; i >= 0; i-- {
+			rollbackFunc[i]()
+		}
+	}()
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteSecret(grpcProxySecretName)
+	})
+	
+	// deploy a pod
 	peerEnv := []corev1.EnvFromSource{
 		{ ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{ Name: podName+"-env", }, }, },
 	}
@@ -908,6 +922,8 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	}
 
 	repn := int32(1)
+	privMode := int32(0400)
+	certMode := int32(0444)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -939,6 +955,22 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 									SecretName: podName,
 								},
 							},
+						},
+						{
+							Name: "secret-proxytls",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: grpcProxySecretName,
+									Items: []corev1.KeyToPath{
+										{ Key: "key", Path: "server.key", Mode: &privMode },
+										{ Key: "cert", Path: "server.crt", Mode: &certMode },
+									},
+								},
+							},
+						},
+						{
+							Name: "config-vol",
+							VolumeSource: corev1.VolumeSource{ EmptyDir: &corev1.EmptyDirVolumeSource{},},
 						},
 					},
 					Hostname: shortName,
@@ -978,7 +1010,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								{
 									Name: "peer",
 									Protocol: corev1.ProtocolTCP,
-									ContainerPort: 7051,
+									ContainerPort: storagePort,
 								},
 								{
 									Name: "chaincode",
@@ -995,7 +1027,10 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								{ Name: "IMMS_ORG", Value: org, },
 								{ Name: "IMMS_POD_NAME", Value: podName, },
 							},
-							Command: []string{"/var/lib/immpluginsrv"},
+							VolumeMounts: []corev1.VolumeMount{
+								{ Name: "config-vol", MountPath: "/var/lib/immconfig", },
+							},
+							Command: []string{"sh", "-c", "mkdir -p "+StorageGrpPermDir+" && /var/lib/immpluginsrv"},
 							StartupProbe: &corev1.Probe{
 								ProbeHandler:  corev1.ProbeHandler{
 									Exec: &corev1.ExecAction{
@@ -1005,6 +1040,25 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								InitialDelaySeconds: int32(5),
 								PeriodSeconds: int32(3),
 								FailureThreshold: int32(20),
+							},
+							ImagePullPolicy: corev1.PullAlways,
+						},
+						{
+							Name: "grpcproxy",
+							Image: pullRegAddr + immutil.ImmGRPCProxyImg,
+							Env: []corev1.EnvVar{
+								{ Name: "BACKEND_HOST", Value: "localhost:"+storagePortStr },
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{ Name: "secret-proxytls", MountPath: "/etc/tlskey", },
+							},
+							Command: []string{"/var/lib/grpcProxy"},
+							Ports: []corev1.ContainerPort{
+								{
+									Name: "grpcproxy",
+									Protocol: corev1.ProtocolTCP,
+									ContainerPort: grpcProxyPort,
+								},
 							},
 							ImagePullPolicy: corev1.PullAlways,
 						},
@@ -1019,9 +1073,51 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		retErr = fmt.Errorf("Could not create a container in a pod: %s\n", err)
 		return 
 	}
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteDeploy(deployment.Name)
+	})
+
+	// create services
+	serviceClient, retErr := immutil.K8sGetServiceClient()
+	if retErr != nil {
+		return
+	}
 	
-	// create a service
-	service := &corev1.Service{
+	svcCouchDB := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: couchdbHostPrefix+shortName,
+			Labels: map[string]string{
+				"app" : "couchdb",
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string] string{
+				"app": shortName,
+			},
+			Ports: []corev1.ServicePort{
+				corev1.ServicePort{
+					Name: "db",
+					Port: 5984,
+					TargetPort: intstr.IntOrString{
+						Type: intstr.Int,
+						IntVal: 5984,
+					},
+				},
+			},
+		},
+	}
+
+	resultSvc, err := serviceClient.Create(context.TODO(), svcCouchDB, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a service for CouchDB: %s", err)
+		return
+	}
+	log.Printf("Create a service: %q", resultSvc.GetObjectMeta().GetName())
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(svcCouchDB.Name)
+	})
+	
+	svcStorage := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: shortName,
 		},
@@ -1031,37 +1127,69 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 			},
 			Ports: []corev1.ServicePort{
 				corev1.ServicePort{
-					Name: "peer",
-					Port: 7051,
+					Name: "storage",
+					Port: storagePort,
 					TargetPort: intstr.IntOrString{
 						Type: intstr.Int,
-						IntVal: 7051,
+						IntVal: storagePort,
 					},
 				},
 			},
 		},
 	}
 
-	config, _, err := immutil.ReadOrgConfig(org)
-	if err == nil && len(config.ExternalIPs) > 0 {
-		service.Spec.ExternalIPs = config.ExternalIPs
-	}else{
-		service.Spec.Type = corev1.ServiceTypeLoadBalancer
-	}
-
-	serviceClient, retErr := immutil.K8sGetServiceClient()
-	if retErr != nil {
-		return
-	}
-	resultSvc, err := serviceClient.Create(context.TODO(), service, metav1.CreateOptions{})
+	resultSvc, err = serviceClient.Create(context.TODO(), svcStorage, metav1.CreateOptions{})
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a service for a peer: %s", err)
 		return
 	}
-	log.Printf("Create service %q\n", resultSvc.GetObjectMeta().GetName())
+	log.Printf("Create a service: %q\n", resultSvc.GetObjectMeta().GetName())
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(svcStorage.Name)
+	})
 
+	svcStorageExport := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: grpcProxySvcPrefix+shortName,
+			Labels: map[string]string{
+				"proxy": "grpc",
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string] string{
+				"app": shortName,
+			},
+			Ports: []corev1.ServicePort{
+				corev1.ServicePort{
+					Name: "grpcproxy",
+					Port: grpcProxyPort,
+					TargetPort: intstr.IntOrString{
+						Type: intstr.Int,
+						IntVal: grpcProxyPort,
+					},
+				},
+			},
+		},		
+	}
+
+	resultSvc, err = serviceClient.Create(context.TODO(), svcStorageExport, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a service for a peer: %s", err)
+		return
+	}
+	log.Printf("Create a service: %q\n", resultSvc.GetObjectMeta().GetName())
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(svcStorageExport.Name)
+	})
+	
+	
+	retErr = immutil.K8sCreateIngress(svcStorageExport.Name, podName, org, grpcProxyPort, "GRPCS") // create an ingress
+	if retErr != nil {
+		return
+	}
+	
 	resourceVersion = createdDep.GetObjectMeta().GetResourceVersion()
-	return
+	return // success
 }
 
 func createKeyPair() (priv, pub []byte, skiStr string, retErr error) {
@@ -1221,7 +1349,7 @@ func (s *server) ExportService(ctx context.Context, req *immop.ExportServiceRequ
 	secretName := req.Hostname
 	reply.CACert, reply.AdminCert, reply.TlsCACert, err = immutil.K8sGetCertsFromSecret(secretName)
 	reply.Hostname = secretName
-	reply.Port = "7051" // not support for swarm
+	reply.Port = storagePortStr // not support for swarm
 
 	return
 }
@@ -1235,65 +1363,6 @@ func (s *server) ListService(ctx context.Context, req *immop.ListServiceRequest)
 	}
 
 	reply.Service, retErr = listService()
-	return
-}
-
-var storageGrpPorts = uint32(0)
-func (s *server) lockedbittestandset(bit int) bool {
-	old := storageGrpPorts
-	new := old | (1 << bit)
-	
-	if new == old {
-		return false
-	}
-		
-	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
-}
-
-func (s *server) lockedbittestandreset(bit int) bool {
-	old := storageGrpPorts
-	new := old &^ (1 << bit)
-
-	if new == old {
-		return false
-	}
-	
-	return atomic.CompareAndSwapUint32(&storageGrpPorts, old, new)
-}
-
-func (s *server) allocStorageGrpPort() (port string, retErr error ) {
-	client, retErr := immutil.K8sGetConfigMapsClient()
-	if retErr != nil {
-		return // error
-	}
-
-	list, err := client.List(context.TODO(), metav1.ListOptions{
-		LabelSelector: "app=orderer",
-	})
-	if err != nil {
-		retErr = fmt.Errorf("failed to get a list of service: " + err.Error())
-		return // error
-	}
-
-	for _, configMap := range list.Items {
-		portStr, ok := configMap.Data["ORDERER_GENERAL_LISTENPORT"]
-		if !ok {
-			continue
-		}
-
-		portNum, _ := strconv.Atoi(portStr)
-		bit := (portNum - storageGrpPort)/100
-		s.lockedbittestandset(int(bit))
-	}
-
-	for i := 0; i < 16; i++ {
-		if s.lockedbittestandset(i) {
-			port = strconv.Itoa(storageGrpPort+i*100)
-			return // success
-		}
-	}
-
-	retErr = fmt.Errorf("There is no unused port in this cluster.")
 	return
 }
 
@@ -1324,34 +1393,18 @@ func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequ
 		return
 	}
 
-	port := strconv.Itoa(int(getStorageGrpPort(grpAdminHost)))
+	port := storageGrpPortStr
 	serviceName := ordererName+":"+port
 	genesisBlock, err := fabconf.CreateGenesisBlock(req.ChannelID, serviceName, anchorPeers)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create genesis block: %s", err)
 		return
 	}
-
-	// create a ConfigMap for genesis-block
+	
 	genesisFile := strings.Split(ordererGenesisFile, "/")
-	genesisMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: ordererName,
-			Labels: map[string]string{
-				"block": "genesis",
-			},
-		},
-		BinaryData: map[string][]byte{
-			genesisFile[len(genesisFile)-1]: genesisBlock,
-		},
-	}
-	mapClient, retErr := immutil.K8sGetConfigMapsClient()
+	retErr = immutil.K8sStoreFilesOnConfig(ordererName, &map[string]string{"block": "genesis"}, nil,
+		&map[string][]byte{genesisFile[len(genesisFile)-1]: genesisBlock})
 	if retErr != nil {
-		return
-	}
-	_, err = mapClient.Create(context.TODO(), genesisMap, metav1.CreateOptions{})
-	if retErr != nil {
-		retErr = fmt.Errorf("failed to create a ConfigMap for genesis.block: " + err.Error())
 		return
 	}
 
@@ -1393,48 +1446,21 @@ func (s *server) ImportService(ctx context.Context, req *immop.ImportServiceRequ
 		return
 	}
 
-	confMapClient, retErr := immutil.K8sGetConfigMapsClient()
-	if retErr != nil {
-		return
-	}
-	
-	chName := grpAdminHost+"-ch"
-	chMap, err := confMapClient.Get(context.TODO(), chName, metav1.GetOptions{})
-	if err != nil || chMap == nil {
-		chMap = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: chName,
-				Labels: map[string] string{
-					"grpHost": grpAdminHost,
-				},
-			},				
-		}
-		
-		chMap, err = confMapClient.Create(context.TODO(), chMap, metav1.CreateOptions{})
-		if err != nil {
-			retErr = fmt.Errorf("failed to create a ConfigMap: " + err.Error())
-			return
-		}
-	}
 
 	serviceData, err := proto.Marshal(req.Service)
 	if err != nil {
 		retErr = err
 		return
-	}
-
-	if chMap.BinaryData == nil {
-		chMap.BinaryData = make(map[string][]byte)
-	}
+	}	
+	chName := grpAdminHost+"-ch"
 	
-	chMap.BinaryData[req.Service.Hostname+"."+req.Service.Port] = serviceData
-	_, err = confMapClient.Update(context.TODO(), chMap, metav1.UpdateOptions{})
-	if err != nil {
-		retErr = fmt.Errorf("failed to update a ConfigMap for " +req.Service.Hostname + ": " + err.Error())
+	retErr = immutil.K8sAppendFilesOnConfig(chName, &map[string]string{"grpHost": grpAdminHost}, nil,
+		&map[string][]byte{req.Service.Hostname+"."+req.Service.Port: serviceData})
+	if retErr != nil {
 		return
 	}
-
-	return
+		
+	return // success
 }
 
 func (s *server) RemoveServiceFromCh(ctx context.Context, req *immop.RemoveServiceRequest) (reply *immop.Reply, retErr error) {
@@ -1451,28 +1477,9 @@ func (s *server) RemoveServiceFromCh(ctx context.Context, req *immop.RemoveServi
 		return
 	}
 
-	confMapClient, retErr := immutil.K8sGetConfigMapsClient()
-	if retErr != nil {
-		return
-	}
-
 	chName := grpAdminHost+"-ch"
-	chMap, err := confMapClient.Get(context.TODO(), chName, metav1.GetOptions{})
-	if err != nil {
-		return // ignore this request
-	}
-
 	key := req.Peer.Hostname + "." + req.Peer.Port
-	if chMap.BinaryData == nil {
-		return // ignore this request
-	}
-	_, ok := chMap.BinaryData[key]
-	if !ok {
-		return // ignore this request
-	}
-	delete(chMap.BinaryData, key)
-		
-	_, err = confMapClient.Update(context.TODO(), chMap, metav1.UpdateOptions{})
+	err = immutil.K8sRemoveFilesOnConfig(chName, nil, []string{key})
 	if err != nil {
 		retErr = fmt.Errorf("failed to remove specified service: " + err.Error())
 		return
@@ -1663,7 +1670,7 @@ func (s *server) ListChannelInPeer(ctx context.Context, req *immop.Credential) (
 			Type: pp.ChaincodeSpec_Type(pp.ChaincodeSpec_Type_value["GOLANG"]),
 			ChaincodeId: &pp.ChaincodeID{Name: "cscc"},
 			Input: &pp.ChaincodeInput{
-				Args: [][]byte{[]byte(cscc.GetChannels)},
+				Args: [][]byte{[]byte("GetChannels")},
 			},
 		},
 	}
@@ -1673,15 +1680,9 @@ func (s *server) ListChannelInPeer(ctx context.Context, req *immop.Credential) (
 		return
 	}
 
-	prop, _, err := utils.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a proposal: " + err.Error())
-		return
-	}
-
-	reply.Proposal, err = proto.Marshal(prop)
-	if err != nil {
-		retErr = fmt.Errorf("failed to marshal a proposal: " + err.Error())
 		return
 	}
 
@@ -1756,6 +1757,41 @@ func (s *server) ListChannelInPeer(ctx context.Context, req *immop.Credential) (
 	return
 }
 
+func compareStorageGrpConf(chConf *channelConf) (retErr error) {
+	storageGrp := strings.TrimSuffix(chConf.ChannelName, "-ch")
+	curChConf, retErr := readChannelConf(storageGrp)
+	if retErr != nil {
+		return
+	}
+
+	if curChConf.OrdererTlsCACert != chConf.OrdererTlsCACert {
+		retErr = fmt.Errorf("different configuration")
+	}
+
+	for org, storageHosts := range chConf.AnchorPeers {
+		curStorageHosts, ok := curChConf.AnchorPeers[org]
+		if !ok {
+			retErr = fmt.Errorf("unknown organization: %s", org)
+			return
+		}
+
+		for _, storageHost := range storageHosts {
+			i := 0
+			for ; i < len(curStorageHosts); i++ {
+				if curStorageHosts[i]  == storageHost {
+					break
+				}
+			}
+			if i == len(curStorageHosts) {
+				retErr = fmt.Errorf("unknown storage host: %s", storageHost)
+				return
+			}
+		}
+	}
+
+	return // same configuration
+}
+
 func (s *server) ActivateChannel(ctx context.Context, req *immop.ActivateChannelReq) (reply *immop.Prop, retErr error) {
 	reply = &immop.Prop{}
 	
@@ -1777,7 +1813,7 @@ func (s *server) ActivateChannel(ctx context.Context, req *immop.ActivateChannel
 			Type: pp.ChaincodeSpec_Type(pp.ChaincodeSpec_Type_value["GOLANG"]),
 			ChaincodeId: &pp.ChaincodeID{Name: "cscc"},
 			Input: &pp.ChaincodeInput{
-				Args: [][]byte{[]byte(cscc.GetConfigBlock), []byte(req.ChannelID)},
+				Args: [][]byte{[]byte("GetConfigBlock"), []byte(req.ChannelID)},
 			},
 		},
 	}
@@ -1787,15 +1823,9 @@ func (s *server) ActivateChannel(ctx context.Context, req *immop.ActivateChannel
 		return
 	}
 
-	prop, _, err := utils.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a proposal: " + err.Error())
-		return
-	}
-
-	reply.Proposal, err = proto.Marshal(prop)
-	if err != nil {
-		retErr = fmt.Errorf("failed to marshal a proposal: " + err.Error())
 		return
 	}
 
@@ -1847,18 +1877,28 @@ func (s *server) ActivateChannel(ctx context.Context, req *immop.ActivateChannel
 			return
 		}
 
-		chConf, err := getConfigFromBlock(propRsp.Response.Payload)
+		chConf, _, err := getConfigFromBlock(propRsp.Response.Payload)
 		if err != nil {
 			signer.err <- err
 			return
 		}
 
-		writeChannelConf(storageHost, chConf)
-		signer.err <- nil
+		err = compareStorageGrpConf(chConf)
+		signer.err <- err
 		return
 	}()
 
 	return
+}
+
+func encodeUint32(val uint32) ([]byte) {
+	// little endian
+	return []byte{byte(val&0xff), byte(val&0xff00>>8), byte(val&0xff0000>>16), byte(val&0xff000000>>24)}
+}
+
+func decodeUint32(data []byte) (uint32) {
+	// little endian	
+	return  uint32(data[0])|uint32(data[1])<<8|uint32(data[2])<<16|uint32(data[3])<<24
 }
 
 func (s *server) GetConfigBlock(ctx context.Context, req *immop.GetConfigBlockReq) (reply *immop.Block, retErr error) {
@@ -1874,28 +1914,27 @@ func (s *server) GetConfigBlock(ctx context.Context, req *immop.GetConfigBlockRe
 		return
 	}
 
-	mapClient, retErr := immutil.K8sGetConfigMapsClient()
-	if retErr != nil {
-		return
-	}
-	
-	genesisMap, err := mapClient.Get(context.TODO(), grpHost, metav1.GetOptions{})
+	genesisFile := strings.Split(ordererGenesisFile, "/")
+	genesisName := genesisFile[len(genesisFile)-1]	
+	genesisData, err:= immutil.K8sReadBinaryFileInConfig(grpHost, genesisName)
 	if err != nil {
 		retErr = fmt.Errorf("could not get a genesis.block: " + err.Error())
 		return
 	}
-	if genesisMap.BinaryData == nil {
-		retErr = fmt.Errorf("Unexpected configMap for gensis block")
+
+	// read access permission
+	exconfigStr, err := immutil.K8sReadFileInConfig(grpHost+"-ch", EXConfigName)
+	if err != nil {
+		exconfigStr = DefaultEXConfig
 	}
+	exconfig := []byte(exconfigStr)
+
+	configData := encodeUint32(uint32(len(genesisData)))
+	configData = append(configData, genesisData...)
+	configData = append(configData, encodeUint32(uint32(len(exconfig)))...)
+	configData = append(configData, exconfig...)
 	
-	genesisFile := strings.Split(ordererGenesisFile, "/")
-	genesisName := genesisFile[len(genesisFile)-1]
-	genesisData, ok := genesisMap.BinaryData[genesisName]
-	if !ok {
-		retErr = fmt.Errorf("Unexpected configMap for genesis block")
-		return
-	}
-	reply.Body = genesisData
+	reply.Body = configData
 
 	return // success
 }
@@ -1905,7 +1944,7 @@ func connectPeerWithName(peerName string) (*grpc.ClientConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return connectPeer(peerName+":7051", tlsCACert)
+	return connectPeer(peerName+":"+storagePortStr, tlsCACert)
 }
 
 func connectPeer(peerAddr string, tlsCACert []byte) (*grpc.ClientConn, error) {
@@ -1944,7 +1983,7 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 	org := cert.Issuer.Organization[0]
 	mspId := fabconf.MspIDPrefix + org
 
-	chConf, err := getConfigFromBlock(req.Msg)
+	chConf, configBlock, err := getConfigFromBlock(req.Msg)
 	if err != nil {
 		retErr = err
 		return
@@ -1955,7 +1994,7 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 		Type: pp.ChaincodeSpec_Type(pp.ChaincodeSpec_Type_value["GOLANG"]),
 		ChaincodeId: &pp.ChaincodeID{Name: "cscc"},
 		Input: &pp.ChaincodeInput{
-			Args: [][]byte{[]byte(cscc.JoinChain), req.Msg},
+			Args: [][]byte{[]byte("JoinChain"), configBlock},
 		},
 	}
 	
@@ -1966,15 +2005,9 @@ func (s *server) JoinChannel(ctx context.Context, req *immop.PropReq) (reply *im
 		return
 	}
 
-	prop, _, err := utils.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_CONFIG, "", invocation, creator)
 	if err != nil {
 		retErr = fmt.Errorf("Error creating proposal for join %s", err)
-		return
-	}
-
-	reply.Proposal, err = proto.Marshal(prop)
-	if err != nil {
-		retErr = err
 		return
 	}
 
@@ -2095,13 +2128,44 @@ func (s *server) waitPeerReady(signer *signerState, peerName string) (retSigner 
 	return signer, signature, nil // success
 }
 
-func getConfigFromBlock(blockRaw []byte) (chConf *channelConf, retErr error) {
-	block := &common.Block{}
+func readBlock(inB []byte) (block *common.Block, blockRaw []byte, retErr error) {
+	if len(inB) < 4 {
+		retErr = fmt.Errorf("unexpected block data")
+		return
+	}
+
+	block = &common.Block{}
+	blockSize := uint32(len(inB))
+	for readP := uint32(0); len(inB) >= int(readP+blockSize); {
+		blockRaw = inB[readP:readP+blockSize]
+		err := proto.Unmarshal(blockRaw, block)
+		if err == nil {
+			return // success
+		}
+
+		fmt.Printf("%s\n", err)
+		
+		if readP == uint32(0) {
+			readP = 4
+			blockSize = uint32(inB[0])|uint32(inB[1])<<8|uint32(inB[2])<<16|uint32(inB[3])<<24
+			continue // retry
+		}
+		retErr = fmt.Errorf("failed to unmarshal: " + err.Error())
+		return // error
+	}
+
+	return
+}
+
+func getConfigFromBlock(blockRaw []byte) (chConf *channelConf, configBlock []byte, retErr error) {
+	block, configBlock, retErr := readBlock(blockRaw)
+	if retErr != nil {
+		return
+	}
+
 	bEnvelope := &common.Envelope{}
 	payload := &common.Payload{}
 	confEnvelope := &common.ConfigEnvelope{}
-
-	proto.Unmarshal(blockRaw, block)
 
 	if len(block.Data.Data) <= 0 {
 		retErr = fmt.Errorf("unexpected block")
@@ -2251,7 +2315,34 @@ func getConfigFromBlock(blockRaw []byte) (chConf *channelConf, retErr error) {
 		ClientOU: clientOU,
 	}
 
-	return
+	// set access permission for this storage group
+	blockSize := len(configBlock)
+	if blockSize == len(blockRaw) {
+		chConf.AccessPermission = "0666" // all users can read and write blocks in this storage group
+		return  // success
+	}
+
+	permData := blockRaw[4+blockSize:]
+	if len(permData) < 4 {
+		retErr = fmt.Errorf("unexpected format for access permission")
+		return
+	}
+
+	permDataSize := decodeUint32(permData[:4])
+	if permDataSize != uint32(22) {
+		retErr = fmt.Errorf("unexpected data size (%d) for access permission", permDataSize)
+		return
+	}
+
+	chConfExt := &channelConf{}
+	err = yaml.Unmarshal(permData[4:], chConfExt)
+	if err != nil {
+		retErr = fmt.Errorf("failed to unmarshal a data: " + err.Error())
+		return
+	}
+	chConf.AccessPermission = chConfExt.AccessPermission
+
+	return // success
 }
 
 func (s *server) sendSignedPropInternal(funcName string, req *immop.PropReq) (*signerState, error) {
@@ -2492,7 +2583,16 @@ func (signer *signerState) eventHandler(eventCh chan error, chConf *channelConf,
 	})
 */
 
-	payloadChHeader := utils.MakeChannelHeader(common.HeaderType_DELIVER_SEEK_INFO, int32(0), chConf.ChannelName, uint64(0) )
+	payloadChHeader := &common.ChannelHeader{
+		Type: int32(common.HeaderType_DELIVER_SEEK_INFO),
+		Version: int32(0),
+		Timestamp: &timestamppb.Timestamp{
+			Seconds: time.Now().Unix(),
+			Nanos: 0,
+		},
+		ChannelId: chConf.ChannelName,
+		Epoch: uint64(0),
+	}
 	payloadChHeader.TlsCertHash = certHash[:]
 	payloadChHeaderRaw, err := proto.Marshal(payloadChHeader)
 	if err != nil {
@@ -2681,13 +2781,17 @@ func (s *server) InstallChainCode(ctx context.Context, req *immop.InstallCC) (re
 		return
 	}
 
-	cds := &pp.ChaincodeDeploymentSpec{
+	cds, err := proto.Marshal(&pp.ChaincodeDeploymentSpec{
 		ChaincodeSpec: &pp.ChaincodeSpec{
 			Type: pp.ChaincodeSpec_Type(pp.ChaincodeSpec_Type_value["GOLANG"]),
 			ChaincodeId: &pp.ChaincodeID{Path: "hlRsyslog/go", Name: defaultCCName, Version: "5.0"},
 			Input: &pp.ChaincodeInput{},
 		},
 		CodePackage: codePkgRaw,
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to make a ChaincodeDeploymentSpec: %s", err)
+		return
 	}
 
 	creator, err := proto.Marshal(&msp.SerializedIdentity{Mspid: mspId, IdBytes: req.Cred.Cert})
@@ -2696,15 +2800,17 @@ func (s *server) InstallChainCode(ctx context.Context, req *immop.InstallCC) (re
 		return
 	}
 
-	prop, _, err := utils.CreateInstallProposalFromCDS(cds, creator)
+	cis := &pp.ChaincodeInvocationSpec{
+		ChaincodeSpec: &pp.ChaincodeSpec{
+			Type: pp.ChaincodeSpec_GOLANG,
+			ChaincodeId: &pp.ChaincodeID{Name: "lscc"},
+			Input: &pp.ChaincodeInput{Args: [][]byte{[]byte("install"), cds}},
+		},
+	}
+	
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, "", cis, creator)
 	if err != nil {
 		retErr = fmt.Errorf("could not create a proposal: %s", err)
-		return
-	}
-
-	reply.Proposal, err = proto.Marshal(prop)
-	if err != nil {
-		retErr = err
 		return
 	}
 
@@ -2766,25 +2872,44 @@ func (s *server) Instantiate(ctx context.Context, req *immop.InstantiateReq) (re
 		return
 	}
 	
-	policyStr := req.Policy
-	if policyStr == "" {
-		firstOrg := true
-		policyStr = "AND("
-		for orgName, _ := range chConf.CACerts {
-			if ! firstOrg {
-				policyStr += ","
-			}
-			policyStr += "'"+fabconf.MspIDPrefix+orgName+".member'"
-			firstOrg = false
-		}
-		policyStr += ")"
-	}
-	policy, err := cauthdsl.FromString(policyStr)
-	if err != nil {
-		retErr = fmt.Errorf("failed to parse the specified policy \"%s\": %s", policyStr, err)
-		return
-	}
+	//	policyStr := req.Policy
+	var policies []*common.SignaturePolicy
+	var principals []*msp.MSPPrincipal
+	memberN := len(chConf.CACerts)
+	i := 0
+	for orgName, _ := range chConf.CACerts {
+		policies = append(policies, &common.SignaturePolicy{
+			Type: &common.SignaturePolicy_SignedBy{
+				SignedBy: int32(i),
+			},
+		})
 
+		principal, err := proto.Marshal(&msp.MSPRole{MspIdentifier: fabconf.MspIDPrefix+orgName, Role: msp.MSPRole_MEMBER})
+		if err != nil {
+			retErr = err
+			return
+		}
+		
+		principals = append(principals, &msp.MSPPrincipal{
+			PrincipalClassification: msp.MSPPrincipal_ROLE,
+			Principal: principal,
+		})
+		i++
+	}
+	
+	policy := &common.SignaturePolicyEnvelope{
+		Version: 0,
+		Identities: principals,
+		Rule: &common.SignaturePolicy{
+			Type: &common.SignaturePolicy_NOutOf_{
+				NOutOf: &common.SignaturePolicy_NOutOf{
+					N: int32(memberN),
+					Rules: policies,
+				},
+			},
+		},
+	}
+	
 	policyRaw, err := proto.Marshal(policy)
 	if err != nil {
 		retErr = fmt.Errorf("failed to marshal policy")
@@ -2792,23 +2917,33 @@ func (s *server) Instantiate(ctx context.Context, req *immop.InstantiateReq) (re
 	}
 
 	var codePkgRaw []byte
-	cds := &pp.ChaincodeDeploymentSpec{
+	cds, err := proto.Marshal(&pp.ChaincodeDeploymentSpec{
 		ChaincodeSpec: &pp.ChaincodeSpec{
 			Type: pp.ChaincodeSpec_Type(pp.ChaincodeSpec_Type_value["GOLANG"]),
 			ChaincodeId: &pp.ChaincodeID{Path: "hlRsyslog/go", Name: defaultCCName, Version: "5.0"},
 			Input: &pp.ChaincodeInput{},
 		},
 		CodePackage: codePkgRaw,
-	}
-
-	proposal, _, err := utils.CreateDeployProposalFromCDS(chConf.ChannelName, cds, creator, policyRaw, []byte("escc"), []byte("vscc"), nil)
+	})
 	if err != nil {
-		retErr = fmt.Errorf("error creating proposal: %s", err)
+		retErr = fmt.Errorf("failed to make a ChaincodeDeploymentSpec: %s", err)
 		return
 	}
-	reply.Proposal, err = proto.Marshal(proposal)
+
+	cis := &pp.ChaincodeInvocationSpec{
+		ChaincodeSpec: &pp.ChaincodeSpec{
+			Type: pp.ChaincodeSpec_GOLANG,
+			ChaincodeId: &pp.ChaincodeID{Name: "lscc"},
+			Input: &pp.ChaincodeInput{
+				Args: [][]byte{[]byte("deploy"), []byte(chConf.ChannelName), cds, policyRaw, []byte("escc"), []byte("vscc")},
+			},
+		},
+	}
+	
+	var proposal *pp.Proposal
+	reply.Proposal, proposal, err = fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, creator)
 	if err != nil {
-		retErr = fmt.Errorf("failed to marshal proposal")
+		retErr = fmt.Errorf("error creating proposal: %s", err)
 		return
 	}
 
@@ -2890,11 +3025,6 @@ func (s *server) Instantiate(ctx context.Context, req *immop.InstantiateReq) (re
 			signer.err <- fmt.Errorf("could not get a header: " + err.Error())
 			return
 		}
-		hdrExt, err := utils.GetChaincodeHeaderExtension(hdr)
-		if err != nil {
-			signer.err <- fmt.Errorf("could not get header extensions: " + err.Error())
-			return
-		}
 
 		chPropPayload := &pp.ChaincodeProposalPayload{}
 		err = proto.Unmarshal(proposal.Payload, chPropPayload)
@@ -2904,7 +3034,7 @@ func (s *server) Instantiate(ctx context.Context, req *immop.InstantiateReq) (re
 		}
 
 		cea := &pp.ChaincodeEndorsedAction{ProposalResponsePayload: propRsp.Payload, Endorsements: endorsements}
-		propPayloadBytes, err := utils.GetBytesProposalPayloadForTx(chPropPayload, hdrExt.PayloadVisibility)
+		propPayloadBytes, err := proto.Marshal(&pp.ChaincodeProposalPayload{Input: chPropPayload.Input,})
 		if err != nil {
 			signer.err <- err
 			return
@@ -2989,7 +3119,7 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 		if retErr != nil {
 			return
 		}
-		peerName += ":7051"
+		peerName += ":"+storagePortStr
 	} else if strings.HasPrefix(req.Option, "enabled:"){
 		spec.ChaincodeSpec.Input = &pp.ChaincodeInput{Args: [][]byte{[]byte("getchaincodes")}}
 		
@@ -3018,17 +3148,11 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 		return
 	}
 
-	prop, _, err := utils.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chName, spec, creator)
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chName, spec, creator)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a proposal: " + err.Error())
 		return
 	}
-	reply.Proposal, err = proto.Marshal(prop)
-	if err != nil {
-		retErr = err
-		return
-	}
-
 
 	signer, retErr := s.setSignatureCh("ListChainCode", cert, "")
 	if retErr != nil {
@@ -3077,36 +3201,43 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 }
 
 func writeChannelConf(storageHost string, chConf *channelConf) error {
-	confMapClient, err := immutil.K8sGetConfigMapsClient()
+	confData, err := yaml.Marshal(chConf)
+	if err != nil {
+		return fmt.Errorf("invalid configuration for storage group: %s", err)
+	}
+	
+	confMapName := storageHost+"-ch"
+	err = immutil.K8sAppendFilesOnConfig(confMapName, &map[string]string{"config": "channel"}, nil,
+		&map[string][]byte{chConf.ChannelName: confData})
+	if err != nil {
+		return err
+	}
+
+	err = writeChannelPerm(storageHost, chConf)
 	if err != nil {
 		return err
 	}
 	
-	confMapName := storageHost+"-ch"
-	chMap, err := confMapClient.Get(context.TODO(), confMapName, metav1.GetOptions{})
-	if err != nil || chMap == nil {
-		chMap = &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: confMapName,
-				Labels: map[string] string{
-					"config": "channel",
-				},
-			},				
-		}
+	return nil // success
+}
 
-		chMap, err = confMapClient.Create(context.TODO(), chMap, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create a ConfigMap for channel: " + err.Error())
-		}
+func writeChannelPerm(storageHost string, chConf *channelConf) (retErr error) {
+	permBuf := bytes.NewBuffer([]byte(chConf.AccessPermission))
+	permFile := strings.TrimSuffix(chConf.ChannelName, "-ch")
+	svcName := strings.SplitN(storageHost, ".", 2)[0]
+
+	podName, retErr := immutil.K8sWaitPodReadyAndGetPodName("app="+svcName, storageHost)
+	if retErr != nil {
+		return
+	}
+	
+	retErr = immutil.K8sExecCmd(podName, "imm-pluginsrv",
+		[]string{"sh", "-c", "tee "+StorageGrpPermDir+permFile}, permBuf, nil, nil)
+	if retErr != nil {
+		return
 	}
 
-	confData, err := yaml.Marshal(chConf)
-	if chMap.BinaryData == nil {
-		chMap.BinaryData = make(map[string][]byte)
-	}
-	chMap.BinaryData[chConf.ChannelName] = confData
-	_, err = confMapClient.Update(context.TODO(), chMap, metav1.UpdateOptions{})
-	return err
+	return // success
 }
 
 func readChannelConf(grpHost string) (*channelConf, error){
@@ -3175,7 +3306,7 @@ func (s *server) ListChannelInMyOU(ctx context.Context, req *immop.Credential) (
 				if ou != chOU {
 					continue
 				}
-				
+
 				listCh.ChName = append(listCh.ChName, chName)
 				break
 			}
@@ -3212,27 +3343,20 @@ func (s *server) RecordLedger(ctx context.Context, req *immop.RecordLedgerReq) (
 		return
 	}
 
-	txId, nonce := generateTxID(creatorData)
-	
 	cis := &pp.ChaincodeInvocationSpec{
 		ChaincodeSpec: &pp.ChaincodeSpec{
 			Type: pp.ChaincodeSpec_GOLANG, ChaincodeId: &pp.ChaincodeID{Name: defaultCCName},
-			Input: &pp.ChaincodeInput{Args: [][]byte{[]byte("addLog"), []byte(req.Key), []byte("TraditionalFormat"), []byte(req.Log)}},
+			Input: &pp.ChaincodeInput{Args: [][]byte{[]byte("addLog"), []byte(req.Key), []byte(req.Format), []byte(req.Log)}},
 		},
 	}
-	
-	proposal, _, err := utils.CreateChaincodeProposalWithTxIDNonceAndTransient(txId, common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, nonce, creatorData, nil)
+
+	var proposal *pp.Proposal
+	reply.Proposal, proposal, err = fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, creatorData)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a proposal: %s", err)
 		return
 	}
 	
-	reply.Proposal, err = proto.Marshal(proposal)
-	if err != nil {
-		retErr = fmt.Errorf("failed to marshal proporal: %s", err)
-		return
-	}
-
 	signer, retErr := s.setSignatureCh("RecordLedger", cert, req.StorageGroup)
 	if retErr != nil {
 		return
@@ -3373,10 +3497,6 @@ func createTransactionPayload(proposal *pp.Proposal, propRsps []*pp.ProposalResp
 	if err != nil {
 		return nil, fmt.Errorf("could not get a header: " + err.Error())
 	}
-	hdrExt, err := utils.GetChaincodeHeaderExtension(hdr)
-	if err != nil {
-		return nil, fmt.Errorf("could not get header extensions: " + err.Error())
-	}
 
 	chPropPayload := &pp.ChaincodeProposalPayload{}
 	err = proto.Unmarshal(proposal.Payload, chPropPayload)
@@ -3390,7 +3510,7 @@ func createTransactionPayload(proposal *pp.Proposal, propRsps []*pp.ProposalResp
 	}
 
 	cea := &pp.ChaincodeEndorsedAction{ProposalResponsePayload: propRsps[0].Payload, Endorsements: endorsements}
-	propPayloadBytes, err := utils.GetBytesProposalPayloadForTx(chPropPayload, hdrExt.PayloadVisibility)
+	propPayloadBytes, err := proto.Marshal(&pp.ChaincodeProposalPayload{Input: chPropPayload.Input,})
 	if err != nil {
 		return nil, err
 	}
@@ -3419,25 +3539,13 @@ func createTransactionPayload(proposal *pp.Proposal, propRsps []*pp.ProposalResp
 	return payloadRaw, nil
 }
 
-func generateTxID(creatorData []byte) (string, []byte) {
-	randNum := make([]byte, 24)
-	rand.Read(randNum)
 
-	buf := append(randNum, creatorData...)
-	digest := sha256.Sum256(buf)
-	txID := hex.EncodeToString(digest[:])	
-
-	return txID, randNum[:]
-}
-
-func createChaincodeProposal(creator *msp.SerializedIdentity, chName, ccName string, inputs *[][]byte) (*pp.Proposal, error) {
+func createChaincodeProposal(creator *msp.SerializedIdentity, chName, ccName string, inputs *[][]byte) ([]byte, error) {
 	creatorData, err := proto.Marshal(creator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make a creator")
 	}
 
-	txId, nonce := generateTxID(creatorData)
-	
 	cis := &pp.ChaincodeInvocationSpec{
 		ChaincodeSpec: &pp.ChaincodeSpec{
 			Type: pp.ChaincodeSpec_GOLANG, ChaincodeId: &pp.ChaincodeID{Name: ccName},
@@ -3445,7 +3553,7 @@ func createChaincodeProposal(creator *msp.SerializedIdentity, chName, ccName str
 		},
 	}
 
-	proposal, _, err := utils.CreateChaincodeProposalWithTxIDNonceAndTransient(txId, common.HeaderType_ENDORSER_TRANSACTION, chName, cis, nonce, creatorData, nil)
+	proposal, _, err := fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chName, cis, creatorData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create a proposal: %s", err)
 	}
@@ -3479,8 +3587,6 @@ func (s *server) ReadLedger(ctx context.Context, req *immop.ReadLedgerReq) (repl
 		return
 	}
 
-	txId, nonce := generateTxID(creatorData)
-	
 	cis := &pp.ChaincodeInvocationSpec{
 		ChaincodeSpec: &pp.ChaincodeSpec{
 			Type: pp.ChaincodeSpec_GOLANG, ChaincodeId: &pp.ChaincodeID{Name: defaultCCName},
@@ -3491,18 +3597,12 @@ func (s *server) ReadLedger(ctx context.Context, req *immop.ReadLedgerReq) (repl
 		cis.ChaincodeSpec.Input = &pp.ChaincodeInput{Args: [][]byte{[]byte("getLog"), []byte(req.Key), []byte(req.Option) }}
 	}
 
-	proposal, _, err := utils.CreateChaincodeProposalWithTxIDNonceAndTransient(txId, common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, nonce, creatorData, nil)
+	reply.Proposal, _, err = fabconf.CreateProposalFromCIS(common.HeaderType_ENDORSER_TRANSACTION, chConf.ChannelName, cis, creatorData)
 	if err != nil {
 		retErr = fmt.Errorf("failed to create a proposal: %s", err)
 		return
 	}
 	
-	reply.Proposal, err = proto.Marshal(proposal)
-	if err != nil {
-		retErr = fmt.Errorf("failed to marshal proporal: %s", err)
-		return
-	}
-
 	signer, retErr := s.setSignatureCh("ReadLedger", cert, "")
 	if retErr != nil {
 		return
@@ -3576,16 +3676,10 @@ func (s *server) QueryBlockByTxID(ctx context.Context, req *immop.QueryBlockByTx
 		return
 	}
 
-	proposal, err := createChaincodeProposal(&creator, chConf.ChannelName, "qscc",
+	reply.Proposal, err = createChaincodeProposal(&creator, chConf.ChannelName, "qscc",
 		&[][]byte{[]byte("GetBlockByTxID"), []byte(chConf.ChannelName), []byte(req.TxID)})
 	if err != nil {
 		retErr = err
-		return
-	}
-
-	reply.Proposal, err = proto.Marshal(proposal)
-	if err != nil {
-		retErr = fmt.Errorf("failed to marshal proposal: %s", err)
 		return
 	}
 
@@ -3910,6 +4004,39 @@ func (s *server) BallotFunc(ctx context.Context, req *immop.BallotFuncRequest) (
 		reply.Rsp, retErr = ballotGetVoterState(req, cert)
 	}
 
+	return
+}
+
+func (s *server) ImmstFunc(ctx context.Context, req *immop.ImmstFuncRequest) (reply *immop.ImmstFuncReply, retErr error) {
+	reply = &immop.ImmstFuncReply{}
+
+	reqTime := &time.Time{}
+	err := reqTime.UnmarshalText([]byte(req.Time))
+	if err != nil {
+		retErr = fmt.Errorf("invalid request")
+		return
+	}
+
+	now := time.Now()
+	diffMins := now.Sub(*reqTime).Minutes()
+	if (-3  >= diffMins) || (diffMins >= 3) {
+		// The requestor's time is incorrect.
+		reply.Time = now.Format(time.RFC3339)
+		return // retry request
+	}
+
+	cert, retErr := s.checkCredential("ImmstFunc", req)
+	if retErr != nil {
+		return
+	}
+
+	switch req.Mod {
+	case immcommon.MCommon:
+		return s.commonFunc(req, cert)
+	case st2mng.MST2:
+		return s.st2Func(req, cert)
+	}
+	
 	return
 }
 

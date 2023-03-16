@@ -34,4 +34,5 @@ const (
 	SupportPackageIsVersion4 = true
 	SupportPackageIsVersion5 = true
 	SupportPackageIsVersion6 = true
+	SupportPackageIsVersion7 = true	
 )

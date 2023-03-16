@@ -24,10 +24,13 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
-	//	apiapp "k8s.io/api/apps/v1"
+	apiapp "k8s.io/api/apps/v1"
+	netv1 "k8s.io/api/networking/v1"
+	
 	clientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	event "k8s.io/apimachinery/pkg/watch"
+	clientnetv1 "k8s.io/client-go/kubernetes/typed/networking/v1"
 	"context"
 
 	"fmt"
@@ -40,7 +43,6 @@ import (
 	"strings"
 	"bufio"
 	"crypto/x509/pkix"
-	"golang.org/x/term"
 )
 
 const (
@@ -121,6 +123,15 @@ func K8sGetServiceClient() (clientv1.ServiceInterface, error) {
 	return clientset.CoreV1().Services(corev1.NamespaceDefault), nil
 }
 
+func K8sGetIngressClient() (clientnetv1.IngressInterface, error) {
+	clientset, _, err := createClientSet()
+	if err != nil {
+		return nil, err
+	}
+
+	return clientset.NetworkingV1().Ingresses(corev1.NamespaceDefault), nil
+}
+
 func K8sDeleteService(serviceName string) error {
 	serviceClient, err := K8sGetServiceClient()
 	if err != nil {
@@ -129,7 +140,7 @@ func K8sDeleteService(serviceName string) error {
 
 	_, err = serviceClient.Get(context.TODO(), serviceName, metav1.GetOptions{})
 	if err != nil {
-		return nil // skip deleting service
+		return nil // ignore
 	}
 	
 	deletePolicy := metav1.DeletePropagationForeground
@@ -137,6 +148,22 @@ func K8sDeleteService(serviceName string) error {
 		PropagationPolicy: &deletePolicy,})
 	if err != nil {
 		return fmt.Errorf("failed to delete a service: %s", err)
+	}
+
+	return nil
+}
+
+func K8sDeleteIngress(ingressName string) error {
+	ingressCli, err := K8sGetIngressClient()
+	if err != nil {
+		return err
+	}
+
+	deletePolicy := metav1.DeletePropagationForeground
+	err = ingressCli.Delete(context.TODO(), ingressName, metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,})
+	if err != nil {
+		return fmt.Errorf("failed to delete an ingress: %s", err)
 	}
 
 	return nil
@@ -173,7 +200,7 @@ func K8sDeleteDeploy(deploymentName string) error {
 	return nil
 }
 
-func K8sDeletePod(label, containPodName string) error {
+func K8sDeletePod(label, basePodName string) error {
 	client, err := K8sGetPodClient()
 	if err != nil {
 		return err
@@ -188,7 +215,7 @@ func K8sDeletePod(label, containPodName string) error {
 
 	deletePolicy := metav1.DeletePropagationForeground
 	for _, pod := range list.Items {
-		if ! strings.Contains(pod.Name, containPodName) {
+		if ! strings.HasPrefix(pod.Name, basePodName) {
 			continue
 		}
 
@@ -327,20 +354,13 @@ func k8sCheckKeyPair(secretName string) (validKey bool, retErr error) {
 		return // not found secret
 	}
 	
-	secretsClient, retErr := K8sGetSecretsClient()
-	if retErr != nil {
-		return // error
-	}
-
 	// This secret already exists.
-	// delete a key pair		
-	deletePolicy := metav1.DeletePropagationForeground
-	retErr = secretsClient.Delete(context.TODO(), secretName, metav1.DeleteOptions{
-		PropagationPolicy: &deletePolicy,})
+	// delete a key pair
+	retErr = K8sDeleteSecret(secretName)
 	return
 }
 
-func K8sStoreKeyPairOnSecret(privPem, certPem []byte, secretName string) (retErr error) {
+func K8sStoreKeyPairOnSecret(privPem, certPem []byte, secretName string, labels *map[string]string) (retErr error) {
 	secretsClient, retErr := K8sGetSecretsClient()
 	if retErr != nil {
 		return // error
@@ -348,15 +368,30 @@ func K8sStoreKeyPairOnSecret(privPem, certPem []byte, secretName string) (retErr
 	
 	secretKeys := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-				Name:secretName,
+			Name:secretName,
 		},
 		Data: map[string][]byte{
 			"key": privPem,
 			"cert": certPem,
 		},	
 	}
+	if labels != nil {
+		secretKeys.ObjectMeta.Labels = *labels
+	}
 	
 	_, retErr = secretsClient.Create(context.TODO(), secretKeys, metav1.CreateOptions{})
+	return
+}
+
+func K8sDeleteSecret(secretName string) (retErr error) {
+	secretsClient, retErr := K8sGetSecretsClient()
+	if retErr != nil {
+		return // error
+	}
+	
+	deletePolicy := metav1.DeletePropagationForeground
+	retErr = secretsClient.Delete(context.TODO(), secretName, metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,})
 	return
 }
 
@@ -377,7 +412,7 @@ func K8sCreateSelfKeyPairWithCAFlag(subj *pkix.Name, isCA bool) (secretName stri
 		return
 	}
 	
-	retErr = K8sStoreKeyPairOnSecret(privPem, pubPem, secretName)
+	retErr = K8sStoreKeyPairOnSecret(privPem, pubPem, secretName, nil)
 	return
 }
 
@@ -392,7 +427,7 @@ func K8sCreateKeyPairWithSecretName(subj *pkix.Name, caPrivPem, caCertPem []byte
 		return
 	}
 
-	retErr = K8sStoreKeyPairOnSecret(privPem, pubPem, secretName)
+	retErr = K8sStoreKeyPairOnSecret(privPem, pubPem, secretName, nil)
 	return	
 }
 
@@ -434,6 +469,74 @@ func K8sGetKeyPair(secretName string) (privPem, certPem []byte, retErr error) {
 	return
 }
 
+func K8sCreateTLSKeyPairOnSecret(hostname, org string, ingressTLS bool) (secretName string, retErr error) {
+	orgConf, err := k8sReadOrgConfig(org)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected K8s enviroment")
+		return
+	}
+
+	caSecretName := TlsCAHostname + "." + org
+	privTLSCA, certTLSCA, err := K8sGetKeyPair(caSecretName)
+	if err != nil {
+		retErr = fmt.Errorf("not found TLS CA: %s", err)
+		return
+	}
+	orgConf.Subj.CommonName = hostname + "." + org
+	secretName = orgConf.Subj.CommonName
+
+	privPem, pubPem, err := CreateCertificate(&orgConf.Subj, privTLSCA, certTLSCA, []string{hostname})
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	secretType := corev1.SecretTypeOpaque
+	privKey := "key"
+	certKey := "cert"
+	if ingressTLS {
+		secretType = corev1.SecretTypeTLS
+		privKey = "tls.key"
+		certKey = "tls.crt"
+		
+		privTrimType := strings.Replace(string(privPem), "-----BEGIN PRIVATE KEY-----\n", "", 1)
+		privTrimType = strings.Replace(privTrimType, "-----END PRIVATE KEY-----\n", "", 1)
+		privPem = []byte(privTrimType)
+		
+		pubTrimType := strings.Replace(string(pubPem), "-----BEGIN CERTIFICATE-----\n", "", 1)
+		pubTrimType = strings.Replace(pubTrimType, "-----END CERTIFICATE-----\n", "", 1)
+		pubPem = []byte(pubTrimType)
+	}
+
+	sClient, err := K8sGetSecretsClient()
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: secretName,
+			Labels: map[string]string{
+				"tls": "keypair",
+			},
+		},
+		Type: secretType,
+		Data: map[string][]byte{
+			privKey: privPem,
+			certKey: pubPem,
+		},
+	}
+
+	_, err = sClient.Create(context.TODO(), secret, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a secret for " + hostname + ": " + err.Error())
+		return
+	}
+
+	return // success
+}
+
 func K8sListPod(labelSelector string) (*corev1.PodList, error) {
 	podClient, err := K8sGetPodClient()
 	if err != nil {
@@ -452,6 +555,17 @@ func K8sListConfigMap(labelSelector string) (*corev1.ConfigMapList, error) {
 	}
 
 	return configMapClient.List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+}
+
+func K8sListSecret(labelSelector string) (*corev1.SecretList, error) {
+	secretClient, err := K8sGetSecretsClient()
+	if err != nil {
+		return nil, err
+	}
+
+	return secretClient.List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 }
@@ -505,7 +619,7 @@ func K8sSetOrgInCoreDNSConf(org string) error {
 	return fmt.Errorf("could not edit CoreDNS ConfigMap")
 }
 
-func K8sWaitPodReady(resourceVersion, label, containPodName string) error {
+func K8sWaitPodReady(resourceVersion, label, basePodName string) error {
 	client, err := K8sGetPodClient()
 	if err != nil {
 		return err
@@ -538,7 +652,7 @@ func K8sWaitPodReady(resourceVersion, label, containPodName string) error {
 				return fmt.Errorf("unexpected event\n")
 			}
 			
-			if ! strings.Contains(pod.Name, containPodName) {
+			if ! strings.HasPrefix(pod.Name, basePodName) {
 				continue
 			}
 			
@@ -552,7 +666,7 @@ func K8sWaitPodReady(resourceVersion, label, containPodName string) error {
 			timeoutF = true
 		}
 
-		state, _, err := K8sGetPodState(label, containPodName)
+		state, _, err := K8sGetPodState(label, basePodName)
 		if err != nil {
 			return err
 		}
@@ -577,7 +691,7 @@ func K8sWaitPodReady(resourceVersion, label, containPodName string) error {
 	return fmt.Errorf("corrupted code")
 }
 
-func K8sWaitPodDeleted(resourceVersion, label, containPodName string) error {
+func K8sWaitPodDeleted(resourceVersion, label, basePodName string) error {
 	client, err := K8sGetPodClient()
 	if err != nil {
 		return err
@@ -608,7 +722,7 @@ func K8sWaitPodDeleted(resourceVersion, label, containPodName string) error {
 				return fmt.Errorf("unexpected event\n")
 			}
 
-			if ! strings.Contains(pod.Name, containPodName) {
+			if ! strings.HasPrefix(pod.Name, basePodName) {
 				continue
 			}
 
@@ -622,7 +736,7 @@ func K8sWaitPodDeleted(resourceVersion, label, containPodName string) error {
 	return fmt.Errorf("corrupted code")
 }
 
-func K8sGetPodState(label, containPodName string) (retState, resourceVersion  string, retErr error) {
+func K8sGetPodState(label, basePodName string) (retState, resourceVersion  string, retErr error) {
 	client, retErr := K8sGetPodClient()
 	if retErr != nil {
 		return
@@ -637,7 +751,7 @@ func K8sGetPodState(label, containPodName string) (retState, resourceVersion  st
 	}
 
 	for _, pod := range list.Items {
-		if ! strings.Contains(pod.Name, containPodName) {
+		if ! strings.HasPrefix(pod.Name, basePodName) {
 			continue
 		}
 
@@ -672,8 +786,46 @@ func K8sGetPodState(label, containPodName string) (retState, resourceVersion  st
 	return
 }
 
+func K8sWaitPodReadyAndGetPodName(label, basePodName string) (podName string, retErr error) {
+	for {
+		podState, ver, err := K8sGetPodState(label, basePodName)
+		if err != nil {
+			return "", fmt.Errorf("failed to get a pod state: %s", err)
+		}
+
+		if podState == Ready {
+			break
+		}
+		
+		if podState == NotReady {
+			K8sWaitPodReady(ver, label, basePodName)
+			continue
+		}
+
+		return "", fmt.Errorf("The specified pod is in an unexpected state: " + podState)
+	}
+
+	pods, err := K8sListPod(label)
+	if err != nil {
+		return "", fmt.Errorf("failed to list pods: %s", err)
+	}
+
+	var foundPod *corev1.Pod
+	for i, item := range pods.Items {
+		if strings.HasPrefix(item.Name, basePodName) {
+			foundPod = &pods.Items[i] // found
+			break
+		}
+	}
+	if foundPod == nil {
+		return "", fmt.Errorf("The specified pod was not found: %s", retErr)
+	}
+
+	return foundPod.Name, nil // success
+}
+
 func k8sReadOrgConfig(org string) (config *ImmConfig, retErr error) {
-	configYaml, retErr := k8sReadConfig(org, "config")
+	configYaml, retErr := K8sReadConfig(org, "config")
 	if retErr != nil {
 		return
 	}
@@ -682,7 +834,7 @@ func k8sReadOrgConfig(org string) (config *ImmConfig, retErr error) {
 	return
 }
 
-func k8sReadConfig(configName, key string) (config string, retErr error) {
+func K8sReadConfig(configName, key string) (config string, retErr error) {
 	cli, retErr := K8sGetConfigMapsClient()
 	if retErr != nil {
 		return
@@ -719,8 +871,7 @@ func k8sGenerateOrgConfig(org string) (config *ImmConfig, retErr error) {
 	
 	config, err := k8sReadOrgConfig(org)
 	if err == nil {
-		retErr = err
-		return
+		return // success
 	}
 	
 	configItems := map[string] []string{
@@ -752,6 +903,12 @@ func k8sGenerateOrgConfig(org string) (config *ImmConfig, retErr error) {
 	}
 	
 	retErr = k8sWriteOrgConfig(org, configYaml, workVolData)
+	if retErr != nil {
+		return
+	}
+
+	retErr = K8sUpdateConfig(org, &map[string]string{
+		EnvGenIngressConf: os.Getenv(EnvGenIngressConf),} )
 	return
 }
 
@@ -760,39 +917,26 @@ func k8sWriteOrgConfig(org, configYaml string, workVolData []byte) (retErr error
 }
 
 func k8sWriteConfig(name, fileName, configType, configData string, workVolData []byte) (retErr error) {
-	cli, retErr := K8sGetConfigMapsClient()
-	if retErr != nil {
-		return
+	labels := &map[string]string{
+		"config": configType,		
 	}
-
-	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string] string {
-				"config": configType,
-			},
-		},
-		Data: map[string]string{
-			fileName: configData,
-		},
+	files := &map[string]string{
+		fileName: configData,
 	}
-
+	
+	var binaryFiles *map[string][]byte
 	if workVolData != nil {
-		configMap.BinaryData = make(map[string][]byte)
-		configMap.BinaryData[workVolume] = workVolData
+		binaryFiles = &map[string][]byte{
+			workVolume: workVolData,
+		}
 	}
-	
-	_, err := cli.Create(context.TODO(), configMap, metav1.CreateOptions{})
-	if err != nil {
-		retErr = fmt.Errorf("failed to create a ConfigMap for %s: %s", name, err.Error())
-		return
-	}
-	
+
+	retErr = K8sStoreFilesOnConfig(name, labels, files, binaryFiles)
 	return
 }
 
 func K8sReadEnvoyConfig(name string) (string, error) {
-	return k8sReadConfig(name, "envoy.yaml")
+	return K8sReadConfig(name, "envoy.yaml")
 }
 
 func K8sWriteEnvoyConfig(name, configYaml string) error {
@@ -862,7 +1006,215 @@ func K8sGetOrgWorkVol(org string) (vol *corev1.VolumeSource, retErr error) {
 	return // success
 }
 
-func K8sExecCmd(podName, containerName string, cmd []string) (retErr error) {
+func K8sStoreFilesOnConfig(name string, labels, files *map[string]string, binaryFiles *map[string][]byte) (retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+
+	if labels != nil {
+		configMap.ObjectMeta.Labels = *labels
+	}
+	if files != nil {
+		configMap.Data = *files
+	}
+	if binaryFiles != nil {
+		configMap.BinaryData = *binaryFiles
+	}
+
+	_, err := cli.Create(context.TODO(), configMap, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a ConfigMap for %s: %s", name, err)
+		return
+	}
+
+	return // succcess
+}
+
+func K8sAppendFilesOnConfig(name string, labels, files *map[string]string, binaryFiles *map[string][]byte) (retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+	
+	configMap, err := cli.Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil || configMap == nil {
+		return K8sStoreFilesOnConfig(name, labels, files, binaryFiles)
+	}
+
+	if configMap.Data == nil {
+		configMap.Data = *files
+		files = nil
+	}	
+	if files != nil {
+		for key, val := range *files {
+			configMap.Data[key] = val
+		}
+	}
+
+	if configMap.BinaryData == nil {
+		configMap.BinaryData = *binaryFiles
+		binaryFiles = nil
+	}
+	if binaryFiles != nil {
+		for key, val := range *binaryFiles {
+			configMap.BinaryData[key] = val
+		}
+	}
+
+	_, err = cli.Update(context.TODO(), configMap, metav1.UpdateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to update a ConfigMap for " + name + ": " + err.Error())
+		return
+	}
+
+	return // success
+}
+
+func K8sRemoveFilesOnConfig(name string, fileNames []string, binaryFileNames []string) (retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+	
+	configMap, err := cli.Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found ConfigMap: %s", err)
+		return
+	}
+
+	if fileNames != nil && configMap.Data != nil {
+		for _, filename := range fileNames {
+			_, ok := configMap.Data[filename]
+			if !ok {
+				continue // ignore
+			}
+			delete(configMap.Data, filename)
+		}
+	}
+
+	if binaryFileNames != nil && configMap.BinaryData != nil {
+		for _, filename := range binaryFileNames {
+			_, ok := configMap.BinaryData[filename]
+			if !ok {
+				continue // ignore
+			}
+			delete(configMap.BinaryData, filename)
+		}
+	}
+
+	_, err = cli.Update(context.TODO(), configMap, metav1.UpdateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to update a ConfigMap for " + name + ": " + err.Error())
+		return
+	}
+
+	return // success
+}
+
+func K8sReadFileInConfig(configName, filename string) (data string, retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap, err := cli.Get(context.TODO(), configName, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found ConfigMap: %s", err)
+		return
+	}
+
+	if configMap.Data == nil {
+		retErr = fmt.Errorf("not found data")
+		return
+	}
+
+	data, ok := configMap.Data[filename]
+	if !ok {
+		retErr = fmt.Errorf("not found %s", filename)
+		return
+	}
+
+	return // success
+}
+
+func K8sReadBinaryFileInConfig(configName, filename string) (data []byte, retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap, err := cli.Get(context.TODO(), configName, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("not found ConfigMap: %s", err)
+		return
+	}
+
+	if configMap.BinaryData == nil {
+		retErr = fmt.Errorf("not found binary data")
+		return
+	}
+
+	data, ok := configMap.BinaryData[filename]
+	if !ok {
+		retErr = fmt.Errorf("not found %s", filename)
+		return
+	}
+
+	return // success
+}
+
+
+func K8sDeleteConfigMap(cfgName string) (error) {
+	configMapCli, err := K8sGetConfigMapsClient()
+	if err != nil {
+		return err
+	}
+
+	deletePolicy := metav1.DeletePropagationForeground
+	err = configMapCli.Delete(context.TODO(), cfgName, metav1.DeleteOptions{
+		PropagationPolicy: &deletePolicy,})
+	if err != nil {
+		return fmt.Errorf("failed to delete a ConfigMap: " + err.Error())
+	}
+	
+	return nil
+}
+
+func K8sUpdateConfig(org string, keyVal *map[string]string) (retErr error) {
+	cli, retErr := K8sGetConfigMapsClient()
+	if retErr != nil {
+		return
+	}
+
+	configMap, err := cli.Get(context.TODO(), org, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to get a ConfigMap for the %s: %s", org, err)
+		return
+	}
+
+	if configMap.Data == nil {
+		retErr = fmt.Errorf("unexpected ConfigMap")
+		return
+	}
+
+	if keyVal == nil {
+		return // nop
+	}
+	for key, val := range *keyVal {
+		configMap.Data[key] = val
+	}
+	cli.Update(context.TODO(), configMap, metav1.UpdateOptions{})
+	return // success
+}
+
+func K8sExecCmd(podName, containerName string, cmd []string, in io.Reader, out io.Writer, errout io.Writer) (retErr error) {
 	client, config, err := K8sGetRESTClient()
 	if err != nil {
 		retErr = err
@@ -877,9 +1229,10 @@ func K8sExecCmd(podName, containerName string, cmd []string) (retErr error) {
 	req.VersionedParams(&corev1.PodExecOptions{
 		Container: containerName,
 		Command: cmd,
-		Stdin: true,
-		Stdout: true,
-		TTY: true,
+		Stdin: (in != nil),
+		Stdout: (out != nil),
+		Stderr: (errout != nil),
+		TTY: (in == nil),
 	}, scheme.ParameterCodec)
 
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
@@ -888,25 +1241,94 @@ func K8sExecCmd(podName, containerName string, cmd []string) (retErr error) {
 		return
 	}
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		log.Printf("failed to get current terminal state: %s", err)
-	} else {
-		defer func() {
-			term.Restore(int(os.Stdin.Fd()), oldState)
-		}()
-	}
-
 	err = exec.Stream(remotecommand.StreamOptions{
-		Stdin: os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Tty: true,
+		Stdin: in,
+		Stdout: out,
+		Stderr: errout,
+		Tty: (in == nil),
 	})
 	if err != nil {
-		retErr = fmt.Errorf("failed to execute a command: %s\n", err)
+		retErr = fmt.Errorf("failed to execute a command: %s", err)
 		return
 	}
 
 	return // success
+}
+
+func K8sDeployPodAndService(deployment *apiapp.Deployment, service *corev1.Service) (retErr error) {
+	deployClient, retErr := K8sGetDeploymentClient()
+	if retErr != nil {
+		return
+	}
+
+	serviceClient, retErr := K8sGetServiceClient()
+	if retErr != nil {
+		return
+	}
+	
+	result, err := deployClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to deploy a pod: " + err.Error())
+		return
+	}
+	log.Printf("Create a pod: %q\n", result.GetObjectMeta().GetName())
+
+	resultSvc, err := serviceClient.Create(context.TODO(), service, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a service: " + err.Error())
+
+		deletePolicy := metav1.DeletePropagationForeground
+		deployClient.Delete(context.TODO(), deployment.Name, metav1.DeleteOptions{
+			PropagationPolicy: &deletePolicy,})
+		return
+	}
+	log.Printf("Create a service: %q\n", resultSvc.GetObjectMeta().GetName())
+
+	return // success
+}
+
+func K8sCreateIngress(svcName, hostname, org string, portNumber int32, backendProto string) (retErr error) {
+	genIngressConf, err := K8sReadConfig(org, EnvGenIngressConf)
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	if genIngressConf == "disable" {
+		return
+	}
+	
+	ingressCli, err := K8sGetIngressClient()
+	if err != nil {
+		retErr = fmt.Errorf("failed to get an ingress client: " + err.Error())
+		return
+	}
+
+	pathtype := netv1.PathTypePrefix
+	ingress := &netv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: svcName,
+			Annotations: map[string]string{ "nginx.ingress.kubernetes.io/backend-protocol": backendProto, },
+		},
+		Spec: netv1.IngressSpec{
+			Rules: []netv1.IngressRule{{
+				Host: hostname,
+				IngressRuleValue: netv1.IngressRuleValue{
+					HTTP: &netv1.HTTPIngressRuleValue{
+						Paths: []netv1.HTTPIngressPath{{
+							Path: "/",
+							PathType: &pathtype,
+							Backend: netv1.IngressBackend{
+								Service: &netv1.IngressServiceBackend{
+									Name: svcName,
+									Port: netv1.ServiceBackendPort{
+										Number: portNumber,
+									},},},},},},},},},},}
+        
+	_, err = ingressCli.Create(context.TODO(), ingress, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create an ingress: " + err.Error())
+		return
+	}
+	return // sucess
 }

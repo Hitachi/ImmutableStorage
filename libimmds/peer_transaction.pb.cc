@@ -52,7 +52,6 @@ static void InitDefaultsscc_info_ChaincodeActionPayload_peer_2ftransaction_2epro
     new (ptr) ::protos::ChaincodeActionPayload();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeActionPayload::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChaincodeActionPayload_peer_2ftransaction_2eproto =
@@ -67,7 +66,6 @@ static void InitDefaultsscc_info_ChaincodeEndorsedAction_peer_2ftransaction_2epr
     new (ptr) ::protos::ChaincodeEndorsedAction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ChaincodeEndorsedAction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ChaincodeEndorsedAction_peer_2ftransaction_2eproto =
@@ -82,7 +80,6 @@ static void InitDefaultsscc_info_ProcessedTransaction_peer_2ftransaction_2eproto
     new (ptr) ::protos::ProcessedTransaction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ProcessedTransaction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_ProcessedTransaction_peer_2ftransaction_2eproto =
@@ -97,7 +94,6 @@ static void InitDefaultsscc_info_SignedTransaction_peer_2ftransaction_2eproto() 
     new (ptr) ::protos::SignedTransaction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::SignedTransaction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_SignedTransaction_peer_2ftransaction_2eproto =
@@ -111,7 +107,6 @@ static void InitDefaultsscc_info_Transaction_peer_2ftransaction_2eproto() {
     new (ptr) ::protos::Transaction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::Transaction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_Transaction_peer_2ftransaction_2eproto =
@@ -126,7 +121,6 @@ static void InitDefaultsscc_info_TransactionAction_peer_2ftransaction_2eproto() 
     new (ptr) ::protos::TransactionAction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::TransactionAction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_TransactionAction_peer_2ftransaction_2eproto =
@@ -314,8 +308,6 @@ bool MetaDataKeys_IsValid(int value) {
 
 // ===================================================================
 
-void SignedTransaction::InitAsDefaultInstance() {
-}
 class SignedTransaction::_Internal {
  public:
 };
@@ -331,12 +323,12 @@ SignedTransaction::SignedTransaction(const SignedTransaction& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   transaction_bytes_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_transaction_bytes().empty()) {
-    transaction_bytes_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_transaction_bytes(),
+    transaction_bytes_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_transaction_bytes(), 
       GetArena());
   }
   signature_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature().empty()) {
-    signature_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature(),
+    signature_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.SignedTransaction)
@@ -381,14 +373,13 @@ void SignedTransaction::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  transaction_bytes_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  signature_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  transaction_bytes_.ClearToEmpty();
+  signature_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* SignedTransaction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -551,10 +542,6 @@ void SignedTransaction::InternalSwap(SignedTransaction* other) {
 
 // ===================================================================
 
-void ProcessedTransaction::InitAsDefaultInstance() {
-  ::protos::_ProcessedTransaction_default_instance_._instance.get_mutable()->transactionenvelope_ = const_cast< ::common::Envelope*>(
-      ::common::Envelope::internal_default_instance());
-}
 class ProcessedTransaction::_Internal {
  public:
   static const ::common::Envelope& transactionenvelope(const ProcessedTransaction* msg);
@@ -590,8 +577,9 @@ ProcessedTransaction::ProcessedTransaction(const ProcessedTransaction& from)
 
 void ProcessedTransaction::SharedCtor() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_ProcessedTransaction_peer_2ftransaction_2eproto.base);
-  ::memset(&transactionenvelope_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&validationcode_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&transactionenvelope_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&validationcode_) -
       reinterpret_cast<char*>(&transactionenvelope_)) + sizeof(validationcode_));
 }
 
@@ -637,7 +625,6 @@ void ProcessedTransaction::Clear() {
 
 const char* ProcessedTransaction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -804,8 +791,6 @@ void ProcessedTransaction::InternalSwap(ProcessedTransaction* other) {
 
 // ===================================================================
 
-void Transaction::InitAsDefaultInstance() {
-}
 class Transaction::_Internal {
  public:
 };
@@ -865,7 +850,6 @@ void Transaction::Clear() {
 
 const char* Transaction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1007,8 +991,6 @@ void Transaction::InternalSwap(Transaction* other) {
 
 // ===================================================================
 
-void TransactionAction::InitAsDefaultInstance() {
-}
 class TransactionAction::_Internal {
  public:
 };
@@ -1024,12 +1006,12 @@ TransactionAction::TransactionAction(const TransactionAction& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   header_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_header().empty()) {
-    header_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_header(),
+    header_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_header(), 
       GetArena());
   }
   payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_payload().empty()) {
-    payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_payload(),
+    payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_payload(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.TransactionAction)
@@ -1074,14 +1056,13 @@ void TransactionAction::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  header_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  header_.ClearToEmpty();
+  payload_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* TransactionAction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1244,10 +1225,6 @@ void TransactionAction::InternalSwap(TransactionAction* other) {
 
 // ===================================================================
 
-void ChaincodeActionPayload::InitAsDefaultInstance() {
-  ::protos::_ChaincodeActionPayload_default_instance_._instance.get_mutable()->action_ = const_cast< ::protos::ChaincodeEndorsedAction*>(
-      ::protos::ChaincodeEndorsedAction::internal_default_instance());
-}
 class ChaincodeActionPayload::_Internal {
  public:
   static const ::protos::ChaincodeEndorsedAction& action(const ChaincodeActionPayload* msg);
@@ -1268,7 +1245,7 @@ ChaincodeActionPayload::ChaincodeActionPayload(const ChaincodeActionPayload& fro
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   chaincode_proposal_payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_chaincode_proposal_payload().empty()) {
-    chaincode_proposal_payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_chaincode_proposal_payload(),
+    chaincode_proposal_payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_chaincode_proposal_payload(), 
       GetArena());
   }
   if (from._internal_has_action()) {
@@ -1318,7 +1295,7 @@ void ChaincodeActionPayload::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  chaincode_proposal_payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  chaincode_proposal_payload_.ClearToEmpty();
   if (GetArena() == nullptr && action_ != nullptr) {
     delete action_;
   }
@@ -1328,7 +1305,6 @@ void ChaincodeActionPayload::Clear() {
 
 const char* ChaincodeActionPayload::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1492,8 +1468,6 @@ void ChaincodeActionPayload::InternalSwap(ChaincodeActionPayload* other) {
 
 // ===================================================================
 
-void ChaincodeEndorsedAction::InitAsDefaultInstance() {
-}
 class ChaincodeEndorsedAction::_Internal {
  public:
 };
@@ -1514,7 +1488,7 @@ ChaincodeEndorsedAction::ChaincodeEndorsedAction(const ChaincodeEndorsedAction& 
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   proposal_response_payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_proposal_response_payload().empty()) {
-    proposal_response_payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_proposal_response_payload(),
+    proposal_response_payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_proposal_response_payload(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.ChaincodeEndorsedAction)
@@ -1558,13 +1532,12 @@ void ChaincodeEndorsedAction::Clear() {
   (void) cached_has_bits;
 
   endorsements_.Clear();
-  proposal_response_payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  proposal_response_payload_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* ChaincodeEndorsedAction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);

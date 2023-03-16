@@ -24,6 +24,10 @@ import (
 
 const (
 	immsrvPath = "/immsrv"
+	
+	DefaultLabelClass = "cert-item"
+	DefaultInputClass = "cert-input"
+	DefaultButtonClass = "immDSBtn"
 )
 
 func GetImmsrvURL() string {
@@ -171,8 +175,6 @@ func getReqBoxHandler(in []js.Value) (handlers *reqBoxActionSet, ok bool) {
 		return // failure
 	}
 	reqStr := in[1].String()
-	print("log: reqStr=" + reqStr + "\n")
-
 	handlers, ok = reqBoxFunc[reqStr]
 	return
 }
@@ -216,7 +218,7 @@ func MakeReqBox(reqBoxAction, header, footer string, okBtn, cancelBtn bool) {
 	
 	html := `<div class="passReqArea">`
 	html += header
-	html += `  <div class="immDSBtn">`
+	html += `  <div class="`+DefaultButtonClass+`">`
 	if okBtn {	
 		html += `    <button onclick="`+reqBoxOKFunc+`(event, '`+reqBoxAction+`')" id="reqBoxOkBtn">OK</button>`
 	}
@@ -263,4 +265,188 @@ func SaveFile(fileName string, fileData []byte, downloadUrlElem string) {
 	exportFile.Set("download", fileName)
 	exportFile.Set("href", saveUrl)
 	exportFile.Call("click")
+}
+
+func ReadFile(fileObj js.Value) (readData []byte) {
+	gl := js.Global()	
+	
+	readDataCh := make(chan []byte, 1)
+		
+	fileReader := gl.Get("FileReader").New()
+	fileReaderCompFunc := js.FuncOf(func(this js.Value, event []js.Value) interface{} {
+		readData := gl.Get("Uint8Array").New(event[0].Get("target").Get("result"))
+		readByte := make([]byte, readData.Get("byteLength").Int())
+		js.CopyBytesToGo(readByte, readData)
+			
+		readDataCh <- readByte
+		return nil
+	})
+	defer fileReaderCompFunc.Release()
+
+	fileReader.Set("onload", fileReaderCompFunc)
+	fileReader.Call("readAsArrayBuffer", fileObj)
+
+	readData = <- readDataCh
+	return 
+}
+
+
+type ItemsHTML struct{
+	html string
+	LabelC string
+	InputC string
+	BtnC string
+}
+
+func InitItems() (*ItemsHTML){
+	return &ItemsHTML{
+		LabelC: DefaultLabelClass,
+		InputC: DefaultInputClass,
+		BtnC: DefaultButtonClass,
+	}
+}
+
+func (i *ItemsHTML) AppendSelectList(idName, disc string, nameList []string) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.LabelC+`"><label for="`+idName+`">`+disc+`</label></div>`
+	i.html += `  <div class="`+i.InputC+`">`
+	i.html += `    <select id="`+idName+`">`
+	for _, name := range nameList {
+		i.html += `      <option value="`+name+`">`+name+`</option>`
+	}
+	i.html += `    </select>`
+	i.html += `  </div>`
+	i.html += `</div>`
+}
+
+type SelectOptList struct{
+	Name string
+	Title string
+}
+
+func (i *ItemsHTML) AppendSelectListWithFunc(idName, disc, onchangeFuncName string, nameList []SelectOptList) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.LabelC+`"><label for="`+idName+`">`+disc+`</label></div>`
+	i.html += `  <div class="`+i.InputC+`">`
+	i.html += `    <select id="`+idName+`" onchange="`+onchangeFuncName+`()">`
+	for _, opt := range nameList {
+		i.html += `      <option value="`+opt.Name+`">`+opt.Title+`</option>`
+	}
+	i.html += `    </select>`
+	i.html += `  </div>`
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendButton(disc, onclickFuncName string) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.BtnC+`">`
+	i.html += `    <button onclick="`+onclickFuncName+`(event)" id="`+onclickFuncName+`Btn">`+disc+`</button>`
+	i.html += "  </div>"
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) appendInput(idName, disc, attr string) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.LabelC+`"><label for="`+idName+`">`+disc+`</label></div>`
+    i.html += `  <div class="`+i.InputC+`"><input " id="`+idName+`" `+attr+`></div>`
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendTextInput(idName, disc, defaultVal, attr string) {
+	i.appendInput(idName, disc, `type="text" value="`+defaultVal+`" `+attr)
+}
+
+func (i *ItemsHTML) AppendPasswordInput(idName, disc, defaultVal, attr string) {
+	i.appendInput(idName, disc, `type="password" value="`+defaultVal+`" `+attr)
+}
+
+func (i *ItemsHTML) AppendReadFileButton(idName, disc, buttonDisc, attr string) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.LabelC+`"><label>`+disc+`</label></div>`
+	i.html += `  <div class="`+i.InputC+`">`
+	i.html += `    <div class="`+i.BtnC+`">`
+	i.html += `      <label for="`+idName+`">`+buttonDisc+`</lable>`
+	i.html += `      <input type="file" id="`+idName+`" `+ attr + `>`
+	i.html += `    </div>`
+	i.html += `  </div>`
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendSaveFileButton(idName, disc, onclickFuncName, attr string) {
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.BtnC+`">`
+	i.html += `    <button onclick="`+onclickFuncName+`(event)" id="`+onclickFuncName+`Btn" `+attr+`>`+disc+`</button>`
+	i.html += `    <a id="`+idName+`"></a>`
+	i.html += "  </div>"
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendButtonWithDsc(name, disc, buttonDisc, onclickFuncName string){
+	i.html += `<div class="row">`
+	i.html += `  <div class="`+i.LabelC+`"><label>`+disc+`</label></div>`
+	i.html += `  <div class="`+i.InputC+`">`
+	i.html += `    <div class="`+i.BtnC+`">`
+	i.html += `      <button onclick="`+onclickFuncName+`(event)" name="`+name+`">`+buttonDisc+`</button>`
+	i.html += `    </div>`
+	i.html += `  </div>`
+	i.html += `</div>`	
+}
+
+func (i *ItemsHTML) appendRow(attrStr, html string) {
+	i.html += `<div class="row"`+attrStr+`>`
+	i.html += html
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendRow(html string) {
+	i.appendRow("", html)
+}
+
+func (i *ItemsHTML) AppendRowWithID(idName, html string) {
+	i.appendRow(` id="`+idName+`"`, html)
+}
+
+func (i *ItemsHTML) AppendLabelAndInputWithAttr(attrStr, label, inputHTML string) {
+	html := `<div class="`+i.LabelC+`"><label>`+label+`</label></div>`
+	html += `<div class="`+i.InputC+`">`+inputHTML+`</div>`
+	i.appendRow(attrStr, html)
+}
+
+func (i *ItemsHTML) AppendLabelAndInput(label, inputHTML string) {
+	i.AppendLabelAndInputWithAttr("", label, inputHTML)
+}
+
+func (i *ItemsHTML) AppendLabelAndInputWithID(idName, label, inputHTML string) {
+	i.AppendLabelAndInputWithAttr(` id="`+idName+`"`, label, inputHTML)
+}
+
+func (i *ItemsHTML) AppendRadioButton(name, disc, val, attr string) {
+	i.html += `<div class="row">`
+	i.html += `  <label class="radioArea">`
+	i.html += `    <input type="radio" name="`+name+`" value="`+val+`" `+attr+`>`
+	i.html += `    <span class="radioBox"></span>`
+	i.html += disc
+	i.html += `  </label>`
+	i.html += `</div>`
+}
+
+func (i *ItemsHTML) AppendCheckbox(disc, attr string) {
+	i.html += `<label class="checkbox">`+disc+`<input type="checkbox" `+attr+`><span class="checkmark"></span></label>`
+}
+
+func (i *ItemsHTML) AppendHTML(html string) {
+	i.html += html
+}
+
+func (i *ItemsHTML) MakeHTML() string {
+	i.PackDiv("cert-area")
+	return i.html
+}
+
+func (i *ItemsHTML) PackDiv(className string) {
+	i.html = `<div class="`+className+`">`+i.html+`</div>`
+}
+
+func (i *ItemsHTML) GetHTML() string {
+	return i.html
 }

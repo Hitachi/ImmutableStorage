@@ -138,7 +138,10 @@ func writeLogPassThrough(ledger *immledger.ImmLedger) (exitN int, retErr error) 
 		}
 		buf = buf[:logLen]
 
-		ledger.Write("", progName, string(buf))
+		err = ledger.Write("", progName, string(buf))
+		if err != nil {
+			return 3, fmt.Errorf("failed to write log: %s", err)
+		}
 	}
 
 	if err != io.EOF {

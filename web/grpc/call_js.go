@@ -17,7 +17,7 @@ import (
 //	"fmt"
 
 	spb "google.golang.org/genproto/googleapis/rpc/status"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

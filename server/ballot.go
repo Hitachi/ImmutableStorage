@@ -28,7 +28,7 @@ import (
 	"time"
 	"errors"
 
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	
 	"cacli"
 	"immutil"
@@ -139,7 +139,7 @@ func createBallotBoxAgent(cert *x509.Certificate) (pubKey []byte, retErr error) 
 		return
 	}
 
-	retErr = immutil.K8sStoreKeyPairOnSecret(privPem, certPem, req.Name)
+	retErr = immutil.K8sStoreKeyPairOnSecret(privPem, certPem, req.Name, nil)
 	if retErr != nil {
 		return
 	}

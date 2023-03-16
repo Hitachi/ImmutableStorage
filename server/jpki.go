@@ -33,7 +33,7 @@ import (
 	"crypto"
 	"time"
 	"bytes"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	
 	"immop"
 	"immclient"

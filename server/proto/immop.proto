@@ -119,6 +119,7 @@ message RecordLedgerReq {
         string Key = 2;
         string Log = 3;
         string StorageGroup = 4;
+        string Format = 5;
 }
 
 message ReadLedgerReq {
@@ -202,6 +203,19 @@ message BallotFuncReply {
         string Time = 2;
 }
 
+message ImmstFuncRequest {
+        Credential Cred = 1;
+        string Mod = 2;
+        string Func = 3;
+        bytes Req = 4;
+        string Time = 5;
+}
+
+message ImmstFuncReply {
+        bytes Rsp = 1;
+        string Time = 2;
+}
+
 service ImmOperation {
         rpc CreateService(CreateServiceRequest) returns (Reply) {}
         rpc ExportService(ExportServiceRequest) returns (ExportServiceReply) {}
@@ -230,4 +244,5 @@ service ImmOperation {
         rpc CommCA(CommCARequest) returns (CommCAReply) {}
         rpc JPKIFunc(JPKIFuncRequest) returns (JPKIFuncReply) {}
         rpc BallotFunc(BallotFuncRequest) returns (BallotFuncReply) {}
+        rpc ImmstFunc(ImmstFuncRequest) returns (ImmstFuncReply) {}        
 }

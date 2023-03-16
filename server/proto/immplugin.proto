@@ -6,6 +6,7 @@ option go_package = "./immplugin";
 message DoPluginRequest {
         bytes Creator = 1;
         repeated bytes Args = 2;
+        string ChannelID = 3;
 }
 
 message DoPluginReply {

@@ -1,0 +1,13 @@
+---
+name: "role_general"
+description: "Role for general users"
+enabled: true
+permission_grants:
+  -
+    resource_uid: "pack:default"
+    permission_types:
+      - "action_execute"
+      - "action_view"
+  -
+    permission_types:
+      - "execution_list"

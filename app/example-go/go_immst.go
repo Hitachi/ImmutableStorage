@@ -23,14 +23,14 @@ import (
 	"os"
 	"time"
 	"golang.org/x/term"
-	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protos/peer"
+	"google.golang.org/protobuf/proto"
+	"fabric/protos/common"
+	"fabric/protos/peer"
 )
 
 func main(){
     if len(os.Args) < 5 {
-		fmt.Printf("Usage: %s key-directory username {read|write} storage-group [write-log]\n", os.Args[0])
+		fmt.Printf("Usage: %s key-directory username {read|write} storage-group [write-log] [log-key]\n", os.Args[0])
         os.Exit(5)
 	}
 	
@@ -39,20 +39,27 @@ func main(){
     op := os.Args[3] // operation {read|write}
     storageGrp := os.Args[4]
 	logData := ""
+	logKey := "logGO"
+	logKeyP := 5
 
     if op != "write" && op != "read" {
         fmt.Printf("unsupported opertion: " + op + "\n")
-        fmt.Printf("Usage: " + os.Args[0] + " key-directory username {read|write} storage-group [write-log]\n")
+        fmt.Printf("Usage: " + os.Args[0] + " key-directory username {read|write} storage-group [write-log] [log-key]\n")
         os.Exit(51)
     }
     if op == "write" {
-        if len(os.Args) != 6 {
-            fmt.Printf("Usage: " + os.Args[0] + " key-directory username write storage-group write-log\n")
+        if len(os.Args) < 6 {
+            fmt.Printf("Usage: " + os.Args[0] + " key-directory username write storage-group write-log [log-key]\n")
             os.Exit(52)
         }
 
         logData = os.Args[5]
+		logKeyP = 6
     }
+
+	if len(os.Args) > logKeyP {
+		logKey = os.Args[logKeyP]
+	}
 
 	var ledger *immledger.ImmLedger
 	password := ""
@@ -85,7 +92,7 @@ func main(){
     }
 
     if op == "write" {
-        err := ledger.Write(storageGrp, "logGO", logData)
+        err := ledger.Write(storageGrp, logKey, logData)
         if err != nil {
             fmt.Printf("error: RecordLedger: %s\n", err)
             os.Exit(2)
@@ -95,7 +102,7 @@ func main(){
     }
 
     // read ledger
-    txIDs, err := ledger.GetTxID(storageGrp, "logGO")
+    txIDs, err := ledger.GetTxID(storageGrp, logKey)
     if err != nil {
 		fmt.Printf("error: %s\n", err)
         os.Exit(3)

@@ -25,16 +25,10 @@ extern PROTOBUF_INTERNAL_EXPORT_token_2ftransaction_2eproto ::PROTOBUF_NAMESPACE
 class TokenTransactionDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<TokenTransaction> _instance;
-  const ::PlainTokenAction* plain_action_;
 } _TokenTransaction_default_instance_;
 class PlainTokenActionDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<PlainTokenAction> _instance;
-  const ::PlainImport* plain_import_;
-  const ::PlainTransfer* plain_transfer_;
-  const ::PlainTransfer* plain_redeem_;
-  const ::PlainApprove* plain_approve_;
-  const ::PlainTransferFrom* plain_transfer_from_;
 } _PlainTokenAction_default_instance_;
 class PlainImportDefaultTypeInternal {
  public:
@@ -72,7 +66,6 @@ static void InitDefaultsscc_info_InputId_token_2ftransaction_2eproto() {
     new (ptr) ::InputId();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::InputId::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_InputId_token_2ftransaction_2eproto =
@@ -86,7 +79,6 @@ static void InitDefaultsscc_info_PlainApprove_token_2ftransaction_2eproto() {
     new (ptr) ::PlainApprove();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainApprove::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<3> scc_info_PlainApprove_token_2ftransaction_2eproto =
@@ -103,7 +95,6 @@ static void InitDefaultsscc_info_PlainDelegatedOutput_token_2ftransaction_2eprot
     new (ptr) ::PlainDelegatedOutput();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainDelegatedOutput::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_PlainDelegatedOutput_token_2ftransaction_2eproto =
@@ -117,7 +108,6 @@ static void InitDefaultsscc_info_PlainImport_token_2ftransaction_2eproto() {
     new (ptr) ::PlainImport();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainImport::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_PlainImport_token_2ftransaction_2eproto =
@@ -132,7 +122,6 @@ static void InitDefaultsscc_info_PlainOutput_token_2ftransaction_2eproto() {
     new (ptr) ::PlainOutput();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainOutput::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_PlainOutput_token_2ftransaction_2eproto =
@@ -146,7 +135,6 @@ static void InitDefaultsscc_info_PlainTokenAction_token_2ftransaction_2eproto() 
     new (ptr) ::PlainTokenAction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainTokenAction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<4> scc_info_PlainTokenAction_token_2ftransaction_2eproto =
@@ -164,7 +152,6 @@ static void InitDefaultsscc_info_PlainTransfer_token_2ftransaction_2eproto() {
     new (ptr) ::PlainTransfer();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainTransfer::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<2> scc_info_PlainTransfer_token_2ftransaction_2eproto =
@@ -180,7 +167,6 @@ static void InitDefaultsscc_info_PlainTransferFrom_token_2ftransaction_2eproto()
     new (ptr) ::PlainTransferFrom();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::PlainTransferFrom::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<3> scc_info_PlainTransferFrom_token_2ftransaction_2eproto =
@@ -197,7 +183,6 @@ static void InitDefaultsscc_info_TokenTransaction_token_2ftransaction_2eproto() 
     new (ptr) ::TokenTransaction();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::TokenTransaction::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_TokenTransaction_token_2ftransaction_2eproto =
@@ -214,18 +199,18 @@ const ::PROTOBUF_NAMESPACE_ID::uint32 TableStruct_token_2ftransaction_2eproto::o
   ~0u,  // no _extensions_
   PROTOBUF_FIELD_OFFSET(::TokenTransaction, _oneof_case_[0]),
   ~0u,  // no _weak_field_map_
-  offsetof(::TokenTransactionDefaultTypeInternal, plain_action_),
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
   PROTOBUF_FIELD_OFFSET(::TokenTransaction, action_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::PlainTokenAction, _internal_metadata_),
   ~0u,  // no _extensions_
   PROTOBUF_FIELD_OFFSET(::PlainTokenAction, _oneof_case_[0]),
   ~0u,  // no _weak_field_map_
-  offsetof(::PlainTokenActionDefaultTypeInternal, plain_import_),
-  offsetof(::PlainTokenActionDefaultTypeInternal, plain_transfer_),
-  offsetof(::PlainTokenActionDefaultTypeInternal, plain_redeem_),
-  offsetof(::PlainTokenActionDefaultTypeInternal, plain_approve_),
-  offsetof(::PlainTokenActionDefaultTypeInternal, plain_transfer_from_),
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
+  ::PROTOBUF_NAMESPACE_ID::internal::kInvalidFieldOffsetTag,
   PROTOBUF_FIELD_OFFSET(::PlainTokenAction, data_),
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::PlainImport, _internal_metadata_),
@@ -358,10 +343,6 @@ static bool dynamic_init_dummy_token_2ftransaction_2eproto = (static_cast<void>(
 
 // ===================================================================
 
-void TokenTransaction::InitAsDefaultInstance() {
-  ::_TokenTransaction_default_instance_.plain_action_ = const_cast< ::PlainTokenAction*>(
-      ::PlainTokenAction::internal_default_instance());
-}
 class TokenTransaction::_Internal {
  public:
   static const ::PlainTokenAction& plain_action(const TokenTransaction* msg);
@@ -470,7 +451,6 @@ void TokenTransaction::Clear() {
 
 const char* TokenTransaction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -621,18 +601,6 @@ void TokenTransaction::InternalSwap(TokenTransaction* other) {
 
 // ===================================================================
 
-void PlainTokenAction::InitAsDefaultInstance() {
-  ::_PlainTokenAction_default_instance_.plain_import_ = const_cast< ::PlainImport*>(
-      ::PlainImport::internal_default_instance());
-  ::_PlainTokenAction_default_instance_.plain_transfer_ = const_cast< ::PlainTransfer*>(
-      ::PlainTransfer::internal_default_instance());
-  ::_PlainTokenAction_default_instance_.plain_redeem_ = const_cast< ::PlainTransfer*>(
-      ::PlainTransfer::internal_default_instance());
-  ::_PlainTokenAction_default_instance_.plain_approve_ = const_cast< ::PlainApprove*>(
-      ::PlainApprove::internal_default_instance());
-  ::_PlainTokenAction_default_instance_.plain_transfer_from_ = const_cast< ::PlainTransferFrom*>(
-      ::PlainTransferFrom::internal_default_instance());
-}
 class PlainTokenAction::_Internal {
  public:
   static const ::PlainImport& plain_import(const PlainTokenAction* msg);
@@ -861,7 +829,6 @@ void PlainTokenAction::Clear() {
 
 const char* PlainTokenAction::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1116,8 +1083,6 @@ void PlainTokenAction::InternalSwap(PlainTokenAction* other) {
 
 // ===================================================================
 
-void PlainImport::InitAsDefaultInstance() {
-}
 class PlainImport::_Internal {
  public:
 };
@@ -1177,7 +1142,6 @@ void PlainImport::Clear() {
 
 const char* PlainImport::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1319,8 +1283,6 @@ void PlainImport::InternalSwap(PlainImport* other) {
 
 // ===================================================================
 
-void PlainTransfer::InitAsDefaultInstance() {
-}
 class PlainTransfer::_Internal {
  public:
 };
@@ -1383,7 +1345,6 @@ void PlainTransfer::Clear() {
 
 const char* PlainTransfer::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1554,10 +1515,6 @@ void PlainTransfer::InternalSwap(PlainTransfer* other) {
 
 // ===================================================================
 
-void PlainApprove::InitAsDefaultInstance() {
-  ::_PlainApprove_default_instance_._instance.get_mutable()->output_ = const_cast< ::PlainOutput*>(
-      ::PlainOutput::internal_default_instance());
-}
 class PlainApprove::_Internal {
  public:
   static const ::PlainOutput& output(const PlainApprove* msg);
@@ -1636,7 +1593,6 @@ void PlainApprove::Clear() {
 
 const char* PlainApprove::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1833,10 +1789,6 @@ void PlainApprove::InternalSwap(PlainApprove* other) {
 
 // ===================================================================
 
-void PlainTransferFrom::InitAsDefaultInstance() {
-  ::_PlainTransferFrom_default_instance_._instance.get_mutable()->delegated_output_ = const_cast< ::PlainDelegatedOutput*>(
-      ::PlainDelegatedOutput::internal_default_instance());
-}
 class PlainTransferFrom::_Internal {
  public:
   static const ::PlainDelegatedOutput& delegated_output(const PlainTransferFrom* msg);
@@ -1915,7 +1867,6 @@ void PlainTransferFrom::Clear() {
 
 const char* PlainTransferFrom::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2112,8 +2063,6 @@ void PlainTransferFrom::InternalSwap(PlainTransferFrom* other) {
 
 // ===================================================================
 
-void PlainOutput::InitAsDefaultInstance() {
-}
 class PlainOutput::_Internal {
  public:
 };
@@ -2129,12 +2078,12 @@ PlainOutput::PlainOutput(const PlainOutput& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   owner_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_owner().empty()) {
-    owner_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_owner(),
+    owner_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_owner(), 
       GetArena());
   }
   type_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_type().empty()) {
-    type_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_type(),
+    type_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_type(), 
       GetArena());
   }
   quantity_ = from.quantity_;
@@ -2181,15 +2130,14 @@ void PlainOutput::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  owner_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  type_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  owner_.ClearToEmpty();
+  type_.ClearToEmpty();
   quantity_ = PROTOBUF_ULONGLONG(0);
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* PlainOutput::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2381,8 +2329,6 @@ void PlainOutput::InternalSwap(PlainOutput* other) {
 
 // ===================================================================
 
-void InputId::InitAsDefaultInstance() {
-}
 class InputId::_Internal {
  public:
 };
@@ -2398,7 +2344,7 @@ InputId::InputId(const InputId& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   tx_id_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_tx_id().empty()) {
-    tx_id_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_tx_id(),
+    tx_id_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_tx_id(), 
       GetArena());
   }
   index_ = from.index_;
@@ -2443,14 +2389,13 @@ void InputId::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  tx_id_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  tx_id_.ClearToEmpty();
   index_ = 0u;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* InputId::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -2617,8 +2562,6 @@ void InputId::InternalSwap(InputId* other) {
 
 // ===================================================================
 
-void PlainDelegatedOutput::InitAsDefaultInstance() {
-}
 class PlainDelegatedOutput::_Internal {
  public:
 };
@@ -2636,12 +2579,12 @@ PlainDelegatedOutput::PlainDelegatedOutput(const PlainDelegatedOutput& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   owner_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_owner().empty()) {
-    owner_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_owner(),
+    owner_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_owner(), 
       GetArena());
   }
   type_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_type().empty()) {
-    type_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_type(),
+    type_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_type(), 
       GetArena());
   }
   quantity_ = from.quantity_;
@@ -2689,15 +2632,14 @@ void PlainDelegatedOutput::Clear() {
   (void) cached_has_bits;
 
   delegatees_.Clear();
-  owner_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  type_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  owner_.ClearToEmpty();
+  type_.ClearToEmpty();
   quantity_ = PROTOBUF_ULONGLONG(0);
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* PlainDelegatedOutput::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);

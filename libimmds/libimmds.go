@@ -28,7 +28,7 @@ import (
 	"immledger"
 	//	"fmt"
 	//	"encoding/hex"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 	"encoding/hex"
 	"crypto/rand"
 	"crypto/sha256"

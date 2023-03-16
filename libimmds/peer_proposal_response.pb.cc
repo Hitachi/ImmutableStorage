@@ -43,7 +43,6 @@ static void InitDefaultsscc_info_Endorsement_peer_2fproposal_5fresponse_2eproto(
     new (ptr) ::protos::Endorsement();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::Endorsement::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_Endorsement_peer_2fproposal_5fresponse_2eproto =
@@ -57,7 +56,6 @@ static void InitDefaultsscc_info_ProposalResponse_peer_2fproposal_5fresponse_2ep
     new (ptr) ::protos::ProposalResponse();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ProposalResponse::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<3> scc_info_ProposalResponse_peer_2fproposal_5fresponse_2eproto =
@@ -74,7 +72,6 @@ static void InitDefaultsscc_info_ProposalResponsePayload_peer_2fproposal_5frespo
     new (ptr) ::protos::ProposalResponsePayload();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::ProposalResponsePayload::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_ProposalResponsePayload_peer_2fproposal_5fresponse_2eproto =
@@ -88,7 +85,6 @@ static void InitDefaultsscc_info_Response_peer_2fproposal_5fresponse_2eproto() {
     new (ptr) ::protos::Response();
     ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
   }
-  ::protos::Response::InitAsDefaultInstance();
 }
 
 ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0> scc_info_Response_peer_2fproposal_5fresponse_2eproto =
@@ -185,14 +181,6 @@ namespace protos {
 
 // ===================================================================
 
-void ProposalResponse::InitAsDefaultInstance() {
-  ::protos::_ProposalResponse_default_instance_._instance.get_mutable()->timestamp_ = const_cast< PROTOBUF_NAMESPACE_ID::Timestamp*>(
-      PROTOBUF_NAMESPACE_ID::Timestamp::internal_default_instance());
-  ::protos::_ProposalResponse_default_instance_._instance.get_mutable()->response_ = const_cast< ::protos::Response*>(
-      ::protos::Response::internal_default_instance());
-  ::protos::_ProposalResponse_default_instance_._instance.get_mutable()->endorsement_ = const_cast< ::protos::Endorsement*>(
-      ::protos::Endorsement::internal_default_instance());
-}
 class ProposalResponse::_Internal {
  public:
   static const PROTOBUF_NAMESPACE_ID::Timestamp& timestamp(const ProposalResponse* msg);
@@ -229,7 +217,7 @@ ProposalResponse::ProposalResponse(const ProposalResponse& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_payload().empty()) {
-    payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_payload(),
+    payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_payload(), 
       GetArena());
   }
   if (from._internal_has_timestamp()) {
@@ -254,8 +242,9 @@ ProposalResponse::ProposalResponse(const ProposalResponse& from)
 void ProposalResponse::SharedCtor() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_ProposalResponse_peer_2fproposal_5fresponse_2eproto.base);
   payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
-  ::memset(&timestamp_, 0, static_cast<size_t>(
-      reinterpret_cast<char*>(&version_) -
+  ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+      reinterpret_cast<char*>(&timestamp_) - reinterpret_cast<char*>(this)),
+      0, static_cast<size_t>(reinterpret_cast<char*>(&version_) -
       reinterpret_cast<char*>(&timestamp_)) + sizeof(version_));
 }
 
@@ -294,7 +283,7 @@ void ProposalResponse::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  payload_.ClearToEmpty();
   if (GetArena() == nullptr && timestamp_ != nullptr) {
     delete timestamp_;
   }
@@ -313,7 +302,6 @@ void ProposalResponse::Clear() {
 
 const char* ProposalResponse::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -555,8 +543,6 @@ void ProposalResponse::InternalSwap(ProposalResponse* other) {
 
 // ===================================================================
 
-void Response::InitAsDefaultInstance() {
-}
 class Response::_Internal {
  public:
 };
@@ -572,12 +558,12 @@ Response::Response(const Response& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   message_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_message().empty()) {
-    message_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_message(),
+    message_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_message(), 
       GetArena());
   }
   payload_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_payload().empty()) {
-    payload_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_payload(),
+    payload_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_payload(), 
       GetArena());
   }
   status_ = from.status_;
@@ -624,15 +610,14 @@ void Response::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  message_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  payload_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  message_.ClearToEmpty();
+  payload_.ClearToEmpty();
   status_ = 0;
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* Response::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -824,8 +809,6 @@ void Response::InternalSwap(Response* other) {
 
 // ===================================================================
 
-void ProposalResponsePayload::InitAsDefaultInstance() {
-}
 class ProposalResponsePayload::_Internal {
  public:
 };
@@ -841,12 +824,12 @@ ProposalResponsePayload::ProposalResponsePayload(const ProposalResponsePayload& 
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   proposal_hash_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_proposal_hash().empty()) {
-    proposal_hash_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_proposal_hash(),
+    proposal_hash_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_proposal_hash(), 
       GetArena());
   }
   extension_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_extension().empty()) {
-    extension_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_extension(),
+    extension_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_extension(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.ProposalResponsePayload)
@@ -891,14 +874,13 @@ void ProposalResponsePayload::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  proposal_hash_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  extension_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  proposal_hash_.ClearToEmpty();
+  extension_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* ProposalResponsePayload::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
@@ -1061,8 +1043,6 @@ void ProposalResponsePayload::InternalSwap(ProposalResponsePayload* other) {
 
 // ===================================================================
 
-void Endorsement::InitAsDefaultInstance() {
-}
 class Endorsement::_Internal {
  public:
 };
@@ -1078,12 +1058,12 @@ Endorsement::Endorsement(const Endorsement& from)
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
   endorser_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_endorser().empty()) {
-    endorser_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_endorser(),
+    endorser_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_endorser(), 
       GetArena());
   }
   signature_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (!from._internal_signature().empty()) {
-    signature_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), from._internal_signature(),
+    signature_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_signature(), 
       GetArena());
   }
   // @@protoc_insertion_point(copy_constructor:protos.Endorsement)
@@ -1128,14 +1108,13 @@ void Endorsement::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
-  endorser_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
-  signature_.ClearToEmpty(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), GetArena());
+  endorser_.ClearToEmpty();
+  signature_.ClearToEmpty();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
 const char* Endorsement::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
 #define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena* arena = GetArena(); (void)arena;
   while (!ctx->Done(&ptr)) {
     ::PROTOBUF_NAMESPACE_ID::uint32 tag;
     ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
