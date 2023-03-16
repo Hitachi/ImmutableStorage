@@ -1048,21 +1048,21 @@ func K8sAppendFilesOnConfig(name string, labels, files *map[string]string, binar
 		return K8sStoreFilesOnConfig(name, labels, files, binaryFiles)
 	}
 
-	if configMap.Data == nil {
-		configMap.Data = *files
-		files = nil
-	}	
 	if files != nil {
+		if configMap.Data == nil {
+			configMap.Data = make(map[string]string)
+		}
+		
 		for key, val := range *files {
 			configMap.Data[key] = val
 		}
 	}
 
-	if configMap.BinaryData == nil {
-		configMap.BinaryData = *binaryFiles
-		binaryFiles = nil
-	}
 	if binaryFiles != nil {
+		if configMap.BinaryData == nil {
+			configMap.BinaryData = make(map[string][]byte)
+		}
+		
 		for key, val := range *binaryFiles {
 			configMap.BinaryData[key] = val
 		}
