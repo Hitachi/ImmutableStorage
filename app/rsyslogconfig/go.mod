@@ -29,7 +29,7 @@ replace fabric/protos/token => ../../server/fabric/protos/token
 replace google.golang.org/grpc => ../../web/grpc
 
 require (
-	google.golang.org/protobuf v1.29.0
+	google.golang.org/protobuf v1.29.1
 	immadmin v0.0.0-00010101000000-000000000000
 	immblock v0.0.0-00010101000000-000000000000
 	immclient v0.0.0-00010101000000-000000000000
