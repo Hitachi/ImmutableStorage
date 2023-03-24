@@ -866,6 +866,7 @@ func exportService(this js.Value, in []js.Value) interface{} {
 		serviceData, err := id.ExportService(hostname, url)
 		if err != nil {
 			print("log: " + err.Error() + "\n")
+			wu.VisibleMsgBox("error: "+err.Error())
 			return
 		}
 
@@ -1136,6 +1137,7 @@ func exportChannel(this js.Value, in []js.Value) interface{} {
 		err = id.CreateChannel(chName, url)
 		if err != nil {
 			print("log: " + err.Error() + "\n")
+			wu.VisibleMsgBox("error: "+err.Error())
 			return
 		}
 
