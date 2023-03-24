@@ -163,6 +163,26 @@ func GenerateKeyPairWithCAFlag(subj *pkix.Name, dnsNames []string, isCA bool) (p
 	return
 }
 
+func CreateCertWithParameters(pubKey *ecdsa.PublicKey, subj *pkix.Name, caPrivPem, caCertPem []byte, certTempl *x509.Certificate) (certPem []byte, retErr error) {
+	caCert, _, retErr := ReadCertificate(caCertPem)
+	if retErr != nil {
+		return
+	}
+
+	caPrivKey, retErr := ReadPrivateKey(caPrivPem)
+	if retErr != nil {
+		return
+	}
+	
+	cert, err := x509.CreateCertificate(rand.Reader, certTempl, caCert, pubKey, caPrivKey)
+	if err != nil {
+		retErr = fmt.Errorf("Failed to create a certificate: %s", err)
+		return
+	}
+	certPem = pem.EncodeToMemory( &pem.Block{Type: "CERTIFICATE", Bytes: cert})
+	return	
+}
+
 func CreateCertificate(subj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []string) (privPem, certPem []byte, retErr error) {
 	// generate a private key
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -180,7 +200,7 @@ func CreateCertificate(subj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []
 	
 	ski := sha256.Sum256( elliptic.Marshal(privKey.Curve, privKey.X,  privKey.Y) )
 
-	// generate a public key
+	// set certificate parameters
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	nowT := time.Now().UTC()
 	certTempl := &x509.Certificate{
@@ -204,22 +224,7 @@ func CreateCertificate(subj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []
 		}
 	}
 
-	caCert, _, retErr := ReadCertificate(caCertPem)
-	if retErr != nil {
-		return
-	}
-
-	caPrivKey, retErr := ReadPrivateKey(caPrivPem)
-	if retErr != nil {
-		return
-	}
-	
-	cert, err := x509.CreateCertificate(rand.Reader, certTempl, caCert, privKey.Public(), caPrivKey)
-	if err != nil {
-		retErr = fmt.Errorf("Failed to create a certificate: %s", err)
-		return
-	}
-	certPem = pem.EncodeToMemory( &pem.Block{Type: "CERTIFICATE", Bytes: cert})
+	certPem, retErr = CreateCertWithParameters(&privKey.PublicKey, subj, caPrivPem, caCertPem, certTempl)
 	return
 }
 
