@@ -45,8 +45,8 @@ Your syslog client will get Immutable Storage functions without adding codes if 
 The Immutable Storage Docker image can be installed to your registry with the following command as root or through sudo.
 
 ```sh
-ctr i import imms-1.6.0.tar
-ctr i push REGISTRY/imms:1.6.0 localhost:32000/imms:1.6.0
+ctr i import imms-1.6.1.tar
+ctr i push REGISTRY/imms:1.6.1 localhost:32000/imms:1.6.1
 ```
 
 REGISTRY is your registry. For example, local registry is "localhost:32000" on microk8s. ctr command may be replaced by microk8s.ctr on microk8s. By default, this "localhost:32000" is an insecure registry. To push the Immutable Storage image to an insecure registry, you need to add the option --plain-http with the "ctr i push" command.
@@ -56,7 +56,7 @@ To configure resources for Immutable Storage service, you need to edit some line
 
 If, for example, your registry is localhost:32000, the line defined image is the following:
  ```yaml
-  - image: localhost:32000/imms:1.6.0
+  - image: localhost:32000/imms:1.6.1
  ```
 
 You must define an organization name for Immutable Storage service. This organization name will be also used as domain name in hostname.
