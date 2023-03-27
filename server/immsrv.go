@@ -46,7 +46,6 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"time"
-	"archive/tar"
 	"strings"
 	"bytes"
 	"strconv"
@@ -58,6 +57,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 
@@ -87,15 +87,10 @@ const (
 	couchdbHostPrefix = "couchdb"
 	grpcProxySvcPrefix = "gproxy"
 	
-
-	hostKeyDir = "key"
-	hostConfDir = "conf"
-	hostDataDir = "/data"
-	
 	fabDefaultConfDir = "/etc/hyperledger/fabric"
-	certsTarDir = "/var/lib/certs"
 	
-	ordererGenesisFile = "/var/hyperledger/orderer/block/genesis.block"
+	ordererGenesisFile = "genesis.block"
+	ordererGenesisDir = "/var/hyperledger/orderer/block"
 	ordererKeyDir = "/var/hyperledger/orderer"
 	ordererDataDir = "/var/hyperledger/production/orderer"
 	ordererWorkingDir = "/opt/gopath/src/github.com/hyperledger/fabric"
@@ -106,19 +101,11 @@ const (
 
 	chaincodePath = "/var/lib/immsrv/hlRsyslog"
 	defaultCCName = "hlRsyslog"
-	runtimeDockerfile = "/var/lib/immsrv/runtimeImg.tar.gz"
 	pluginSock = "/run/immplugin.sock"
 
 	clearMspCmd = "rm -rf "+fabDefaultConfDir+"/msp"
-	cpKeyCmd = "tar xf "+certsTarDir+"/keys.tar -C "+fabDefaultConfDir
-	
-	mkOrdererKeyDir = "mkdir -p "+ordererKeyDir
-	cpOrdererKeyCmd = "tar xf "+certsTarDir+"/keys.tar -C "+ordererKeyDir
-	ordererEpCmd = clearMspCmd+"&&"+cpKeyCmd+"&&"+mkOrdererKeyDir+"&&"+cpOrdererKeyCmd
-
-	mkPeerKeyDir = "mkdir -p "+peerKeyDir
-	cpPeerKeyCmd = "tar xf "+certsTarDir+"/keys.tar -C "+peerKeyDir
-	peerEpCmd = clearMspCmd+"&&"+cpKeyCmd+"&&"+mkPeerKeyDir+"&&"+cpPeerKeyCmd
+	ordererEpCmd = clearMspCmd+`&& (cd `+fabDefaultConfDir+`; ln -s `+ordererKeyDir+`/msp .; ln -s `+ordererKeyDir+`/tls .)`
+	peerEpCmd = clearMspCmd+`&& (cd `+fabDefaultConfDir+`; ln -s `+peerKeyDir+`/msp .; ln -s `+peerKeyDir+`/tls .)`
 
 	storageAdminAttr = "StorageAdmin"
 	grpAdminOU = "StorageGrpAdmin"
@@ -383,16 +370,22 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 		hasPrivilege func(cert *x509.Certificate) bool
 		createEnv func(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 		mspPrefix string
+		keyDir string
+		label string
 	}{
 		"orderer": {
 			hasPrivilege: hasStorageGrpAdmin,
 			createEnv: s.createOrderer,
 			mspPrefix: fabconf.OrdererMspIDPrefix,
+			keyDir: ordererKeyDir,
+			label: "storage-grp",
 		},
 		"peer": {
 			hasPrivilege: hasStorageAdmin,
 			createEnv: createPeer,
 			mspPrefix: fabconf.MspIDPrefix,
+			keyDir: peerKeyDir,
+			label: "storage",
 		},
 	}
 
@@ -409,13 +402,13 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 	}
 
 	// read a private key 
-	privSki, err := readPrivKey(req.Priv)
+	privKey, err := immutil.ReadPrivateKey(req.Priv)
 	if err != nil {
 		retErr = fmt.Errorf("failed to read a private key of the specified service: "+err.Error())
 		return
 	}
 
-	if pubSki != privSki {
+	if pubSki != getPrivSki(privKey) {
 		retErr = fmt.Errorf("There is a mismatch between keys")
 		return
 	}
@@ -452,75 +445,82 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 		return
 	}
 
-	// create a key-pair for TLS
-	tlsPriv, tlsPub, tlsSki, retErr := createKeyPair()
-	if retErr != nil {
-		return
-	}
-
 	tlsCAPriv, tlsCACert, err := immutil.K8sGetKeyPair(immutil.TlsCAHostname+"."+s.org)
 	if err != nil {
 		retErr = fmt.Errorf("failed to read a key-pair for TLS CA: " + err.Error())
 		return
 	}
 
-	tlsCert, retErr := signPublicKey(tlsPub, &cert.Subject, tlsCAPriv, tlsCACert, nil)
+	// create a key-pair for TLS
+	tlsPriv, tlsCert, tlsSki, retErr := createKeyPair(&cert.Subject, tlsCAPriv, tlsCACert, []string{shortHost, "localhost"})
 	if retErr != nil {
 		return
 	}
-	
+
+	retErr = immutil.K8sSetTLSKeyPairOnSecret(host, tlsPriv, tlsCert, true)
+	if retErr != nil {
+		return
+	}
+	log.Printf("created a secret: %s\n", host)
+
+	skiStr := hex.EncodeToString(pubSki[:])
+
+
 	tlsPrivFile := tlsSki+"_sk"
 	tlsCertFile := host+"-cert.pem"
 	tlsCACertFile := immutil.TlsCAHostname+"."+org+"-cert.pem"
 
-		
-	// create a secret
-	caCert := s.parentCertPem
-	skiStr := hex.EncodeToString(pubSki[:])
+	privMode := int32(0400)
+	certMode := int32(0444)
+	keyToPath, err := json.Marshal([]corev1.KeyToPath{
+		{ Path: /*"tls/"+*/tlsPrivFile, Key: "tls.key", Mode: &privMode},
+		{ Path: /*"tls/"+*/tlsCertFile, Key: "tls.crt", Mode: &certMode},
+		{ Path: /*"msp/keystore/"+*/skiStr+"_sk", Key: "sign.key", Mode: &privMode},
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to marshal a slice of VolumeMount: %s", err)
+		return
+	}
+	
+	retErr = immutil.K8sAppendFilesOnSecret(host, &map[string][]byte{
+		"sign.key": req.Priv,
+		"keytopath": keyToPath,
+	})
+	if retErr != nil {
+		return
+	}
 
+	// create a configmap
+	caCert := s.parentCertPem
 	mspID := svc.mspPrefix + org
 	configYaml := s.createConfigYaml()
-	data := []immutil.TarData{
-		{&tar.Header{ Name: "tls/", Mode: 0755, }, nil },
-		{&tar.Header{ Name: "tls/"+tlsPrivFile, Mode: 0400, Size: int64(len(tlsPriv)), }, tlsPriv },
-		{&tar.Header{ Name: "tls/"+tlsCertFile, Mode: 0444, Size: int64(len(tlsCert)), }, tlsCert},
-		{&tar.Header{ Name: "msp/", Mode: 0755, }, nil },
-		{&tar.Header{ Name: "msp/keystore/", Mode: 0755, }, nil},
-		{&tar.Header{ Name: "msp/keystore/"+skiStr+"_sk", Mode: 0400, Size: int64(len(req.Priv)), }, req.Priv},
-		{&tar.Header{ Name: "msp/signcerts/", Mode: 0755, }, nil},
-		{&tar.Header{ Name: "msp/signcerts/"+host+"@"+mspID+"-cert.pem", Mode: 0444, Size: int64(len(req.Cert)), }, req.Cert},
-		{&tar.Header{ Name: "msp/cacerts/", Mode: 0755, }, nil},
-		{&tar.Header{ Name: "msp/cacerts/"+s.parentCert.Subject.CommonName+"-cert.pem", Mode: 0444, Size: int64(len(caCert)), }, caCert},
-		{&tar.Header{ Name: "msp/admincerts/", Mode: 0755, }, nil},
-		{&tar.Header{ Name: "msp/admincerts/"+userName+"@"+mspID+"-cert.pem", Mode: 0444, Size: int64(len(req.Cred.Cert)), }, req.Cred.Cert},
-		{&tar.Header{ Name: "msp/tlscacerts/", Mode: 0755, }, nil},
-		{&tar.Header{ Name: "msp/tlscacerts/"+tlsCACertFile, Mode: 0444, Size: int64(len(tlsCACert)), }, tlsCACert},
-		{&tar.Header{ Name: "msp/config.yaml", Mode: 0755, Size: int64(len(configYaml)), }, configYaml},
+	
+	configmapVolMount, err := json.Marshal([]corev1.VolumeMount{
+		{ Name: "configmap-vol1", MountPath: svc.keyDir + "/msp/signcerts/"+host+"@"+mspID+"-cert.pem", SubPath: "signcert", }, // req.Cert
+		{ Name: "configmap-vol1", MountPath: svc.keyDir + "/msp/cacerts/"+s.parentCert.Subject.CommonName+"-cert.pem", SubPath: "cacert", }, // caCert
+		{ Name: "configmap-vol1", MountPath: svc.keyDir + "/msp/admincerts/"+userName+"@"+mspID+"-cert.pem", SubPath: "admincert", }, // req.Cred.Cert
+		{ Name: "configmap-vol1", MountPath: svc.keyDir + "/msp/tlscacerts/"+tlsCACertFile, SubPath: "tlscacert", }, // tlsCACert
+		{ Name: "configmap-vol1", MountPath: svc.keyDir + "/msp/config.yaml", SubPath: "config.yaml", }, // configYaml
+	})
+	if err != nil {
+		retErr = fmt.Errorf("failed to marshal a slice of VolumeMount for a ConfigMap: %s", err)
+		return
 	}
-
-	buf, retErr := immutil.GetTarBuf(data)
+	
+	retErr = immutil.K8sStoreFilesOnConfig(host, &map[string]string{"config": svc.label}, 
+		&map[string]string{
+			"signcert": string(req.Cert),
+			"cacert": string(caCert),
+			"admincert": string(req.Cred.Cert),
+			"tlscacert": string(tlsCACert),
+			"config.yaml": string(configYaml),
+			"volmount": string(configmapVolMount),
+		}, nil)
 	if retErr != nil {
 		return
 	}
 
-	secretTar := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: host,
-		},
-		Data: map[string][]byte{
-			"keys.tar": buf.Bytes(),
-		},
-	}
-
-	secretsClient, retErr := immutil.K8sGetSecretsClient()
-	if retErr != nil {
-		return
-	}
-	resultSecret, retErr := secretsClient.Create(context.TODO(), secretTar, metav1.CreateOptions{})
-	if retErr != nil {
-		return
-	}
-	print("Create a secret: " + resultSecret.GetObjectMeta().GetName() + "\n")
+	log.Printf("created a ConfigMap: %s\n", host)
 	
 	// create an enviroment
 	retErr = svc.createEnv(host, org, tlsPrivFile, tlsCertFile, tlsCACertFile)
@@ -528,37 +528,62 @@ func (s *server) CreateService(ctx context.Context, req *immop.CreateServiceRequ
 	return
 }
 
+func getVolMountList(name string) (tlsSecretPath, signKeyPath []corev1.KeyToPath, configVolMount []corev1.VolumeMount, retErr error) {
+	keyToPathData, err := immutil.K8sReadFileInSecret(name, "keytopath")
+	if err != nil {
+		retErr = fmt.Errorf("unexpected secret: %s", err)
+		return
+	}
+	
+	var keyToPath []corev1.KeyToPath
+	err = json.Unmarshal(keyToPathData, &keyToPath)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected secret: %s", err)
+		return
+	}
+	
+	if len(keyToPath) != 3 {
+		retErr = fmt.Errorf("unexpected data in a secret")
+	}
+	tlsSecretPath = keyToPath[0:2]
+	signKeyPath = keyToPath[2:]
+	
+	
+	volMountData, err := immutil.K8sReadFileInConfig(name, "volmount")
+	if err != nil {
+		retErr = fmt.Errorf("unexpected ConfigMap: %s", err)
+		return
+	}
+
+	err = json.Unmarshal([]byte(volMountData), &configVolMount)
+	if err != nil {
+		retErr = fmt.Errorf("unexpected ConfigMap: %s", err)
+		return
+	}
+
+	return // success
+}
+
+
 func (s *server) createOrderer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
 	mspID := fabconf.OrdererMspIDPrefix + org
 	port := storageGrpPortStr
-	
-	ordererEnvMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: hostname+"-env",
-			Labels: map[string]string{
-				"app": "orderer",
-			},
-		},
-		Data: map[string]string{
+
+	err := immutil.K8sStoreFilesOnConfig(hostname+"-env", &map[string]string{"app": "orderer"}, 
+		&map[string]string{
 			"ORDERER_GENERAL_LOGLEVEL": "DEBUG",
 			"ORDERER_GENERAL_LISTENADDRESS": "0.0.0.0",
 			"ORDERER_GENERAL_LISTENPORT": port,
 			"ORDERER_GENERAL_GENESISMETHOD": "file",
-			"ORDERER_GENERAL_GENESISFILE": ordererGenesisFile,
+			"ORDERER_GENERAL_GENESISFILE": ordererGenesisDir+"/"+ordererGenesisFile,
 			"ORDERER_GENERAL_LOCALMSPID": mspID,
 			"ORDERER_GENERAL_LOCALMSPDIR": ordererKeyDir+"/msp",
 			"ORDERER_GENERAL_TLS_ENABLED": "true",
 			"ORDERER_GENERAL_TLS_PRIVATEKEY": ordererKeyDir+"/tls/"+tlsPrivFile,
 			"ORDERER_GENERAL_TLS_CERTIFICATE": ordererKeyDir+"/tls/"+tlsCertFile,
 			"ORDERER_GENERAL_TLS_ROOTCAS": "["+ordererKeyDir+"/msp/tlscacerts/"+tlsCAFile+"]",
-		},
-	}
+		}, nil )
 
-	configMapClient, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return err
-	}
-	_, err = configMapClient.Create(context.TODO(), ordererEnvMap, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create a ConfigMap for orderer enviriment variable: " + err.Error())
 	}
@@ -619,8 +644,36 @@ func startOrderer(serviceName string) (retErr error) {
 		return
 	}
 
-	genesisFile := strings.Split(ordererGenesisFile, "/")
-	genesisDir := strings.TrimSuffix(ordererGenesisFile, "/"+genesisFile[len(genesisFile)-1])
+	tlsSecretPath, signKeyPath, configVolMount, retErr := getVolMountList(podName)
+	if retErr != nil {
+		return
+	}
+	
+	volumes := []corev1.Volume{
+		{ Name: "data-vol", VolumeSource: *workVol,	},
+		{ Name: "secret-tls", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: podName,
+				Items: tlsSecretPath,
+			}, }, },
+		{ Name: "secret-signkey", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: podName,
+				Items: signKeyPath,
+			}, }, },						
+		{ Name: "configmap-vol1", VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: podName,
+				}, }, }, },
+	}
+	
+	volMount := append(configVolMount,
+		corev1.VolumeMount{Name: "data-vol", MountPath: ordererDataDir, SubPath: podName+"/data", },
+		corev1.VolumeMount{Name: "secret-tls", MountPath: ordererKeyDir+"/tls", },
+		corev1.VolumeMount{Name: "secret-signkey", MountPath: ordererKeyDir+"/msp/keystore", },
+		corev1.VolumeMount{Name: "configmap-vol1", MountPath: ordererGenesisDir+"/"+ordererGenesisFile, SubPath: ordererGenesisFile, },)
+	
 	repn := int32(1)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
@@ -642,30 +695,7 @@ func startOrderer(serviceName string) (retErr error) {
 					Name: podName,
 				},
 				Spec: corev1.PodSpec{
-					Volumes: []corev1.Volume{
-						{
-							Name: "vol1",
-							VolumeSource: *workVol,
-						},
-						{
-							Name: "secret-vol1",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: podName,
-								},
-							},
-						},
-						{
-							Name: "configmap-vol1",
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: podName,
-									},
-								},
-							},
-						},
-					},
+					Volumes: volumes,
 					Hostname: shortName,
 					Subdomain: immutil.K8sSubDomain,
 					DNSConfig: &corev1.PodDNSConfig{
@@ -677,11 +707,7 @@ func startOrderer(serviceName string) (retErr error) {
 						{
 							Name: shortName,
 							Image: pullRegAddr + immutil.OrdererImg,
-							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: ordererDataDir, SubPath: podName+hostDataDir, },
-								{ Name: "secret-vol1", MountPath: certsTarDir, },
-								{ Name: "configmap-vol1", MountPath: genesisDir, },
-							},
+							VolumeMounts: volMount,
 							EnvFrom: ordererEnv,
 							WorkingDir: ordererWorkingDir,
 							Command: []string{"sh", "-c", ordererEpCmd+"&& orderer"},
@@ -758,21 +784,23 @@ func startOrderer(serviceName string) (retErr error) {
 		immutil.K8sDeleteService(service.Name)
 	})
 
-	retErr = immutil.K8sCreateIngress(shortName, podName, org, storageGrpPort, "GRPCS") // create an ingress
-	return
+	retErr = immutil.K8sCreateIngressWithTLS(shortName, podName, org, storageGrpPort, "GRPCS",
+		[]netv1.IngressTLS{{
+			Hosts: []string{podName},
+			SecretName: podName,
+		}})
+	if retErr != nil {
+		return
+	}
+
+	return // success
 }
 
 func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error {
 	mspID := fabconf.MspIDPrefix + org
-	// netName := immutil.DockerNetPrefix + org
-	peerEnvMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: hostname+"-env",
-			Labels: map[string]string{
-				"app": "peer",
-			},
-		},
-		Data: map[string]string{
+	
+	err := immutil.K8sStoreFilesOnConfig(hostname+"-env",	&map[string]string{"app": "peer"},
+		&map[string]string{
 			"CORE_VM_ENDPOINT": "tcp://localhost:2376",
 			//"CORE_VM_DOCKER_TLS_ENABLED": "true",
 			//"CORE_VM_DOCKER_TLS_CERT_FILE": "/certs/client/cert.pem",
@@ -810,36 +838,19 @@ func createPeer(hostname, org, tlsPrivFile, tlsCertFile, tlsCAFile string) error
 			"CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS": "localhost:5984",
 			"CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME": "",
 			"CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD": "",
-		},
-	}
-
-	couchDBEnvMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: couchdbHostPrefix+hostname+"-env",
-			Labels: map[string]string{
-				"app": "couchdb",
-			},
-		},
-		Data: map[string]string{
-			"COUCHDB_USER": "",
-			"COUCHDB_PASSWORD": "",
-		},
-	}
-
-	configMapClient, err := immutil.K8sGetConfigMapsClient()
-	if err != nil {
-		return err
-	}
-	
-	_, err = configMapClient.Create(context.TODO(), peerEnvMap, metav1.CreateOptions{})
+		}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create a ConfigMap for peer environment variable: " + err.Error())
 	}
-
-	_, err = configMapClient.Create(context.TODO(), couchDBEnvMap, metav1.CreateOptions{})
+	
+	err = immutil.K8sStoreFilesOnConfig(couchdbHostPrefix+hostname+"-env", &map[string]string{"app": "couchdb"},
+		&map[string]string{
+			"COUCHDB_USER": "",
+			"COUCHDB_PASSWORD": "",
+		}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create a ConfigMap for couchDB environment variable: " + err.Error())
-	}
+	}	
 
 	return nil // success
 }
@@ -879,25 +890,6 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	state = immutil.NotReady
 
 
-	// create a key pair for GRPC proxy
-	grpcProxySecretName, retErr := immutil.K8sCreateTLSKeyPairOnSecret(grpcProxySvcPrefix+shortName, org, false)
-	if retErr != nil {
-		return
-	}
-	var rollbackFunc []func()
-	defer func() {
-		if retErr == nil {
-			return
-		}
-
-		for i := len(rollbackFunc)-1; i >= 0; i-- {
-			rollbackFunc[i]()
-		}
-	}()
-	rollbackFunc = append(rollbackFunc, func(){
-		immutil.K8sDeleteSecret(grpcProxySecretName)
-	})
-	
 	// deploy a pod
 	peerEnv := []corev1.EnvFromSource{
 		{ ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{ Name: podName+"-env", }, }, },
@@ -921,9 +913,41 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		return
 	}
 
+	tlsSecretPath, signKeyPath, configVolMount, retErr := getVolMountList(podName)
+	if retErr != nil {
+		return
+	}
+	
+	volumes := []corev1.Volume{
+		{ Name: "data-vol", VolumeSource: *workVol, },
+		{ Name: "secret-tls", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: podName,
+				Items: tlsSecretPath,
+			}, }, },
+		{ Name: "secret-signkey", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: podName,
+				Items: signKeyPath,
+			}, }, },
+		{ Name: "secret-keys", VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: podName,
+			}, }, },
+		{ Name: "configmap-vol1", VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: podName,
+				}, }, }, },
+		{ Name: "plugin-config-vol", VolumeSource: corev1.VolumeSource{ EmptyDir: &corev1.EmptyDirVolumeSource{},},},		
+	}
+	
+	storageVolMount := append(configVolMount,
+		corev1.VolumeMount{Name: "data-vol", MountPath: peerDataDir, SubPath: podName+"/data", },
+		corev1.VolumeMount{Name: "secret-tls", MountPath: peerKeyDir+"/tls", },
+		corev1.VolumeMount{Name: "secret-signkey", MountPath: peerKeyDir+"/msp/keystore", }, )
+
 	repn := int32(1)
-	privMode := int32(0400)
-	certMode := int32(0444)
 	ndots := "1"
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -943,36 +967,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 					},
 				},
 				Spec: corev1.PodSpec{
-					Volumes: []corev1.Volume{
-						{
-							Name: "vol1",
-							VolumeSource: *workVol,
-						},
-						{
-							Name: "secret-vol1",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: podName,
-								},
-							},
-						},
-						{
-							Name: "secret-proxytls",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: grpcProxySecretName,
-									Items: []corev1.KeyToPath{
-										{ Key: "key", Path: "server.key", Mode: &privMode },
-										{ Key: "cert", Path: "server.crt", Mode: &certMode },
-									},
-								},
-							},
-						},
-						{
-							Name: "config-vol",
-							VolumeSource: corev1.VolumeSource{ EmptyDir: &corev1.EmptyDirVolumeSource{},},
-						},
-					},
+					Volumes: volumes,
 					Hostname: shortName,
 					Subdomain: immutil.K8sSubDomain,
 					DNSConfig: &corev1.PodDNSConfig{
@@ -999,10 +994,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 						{
 							Name: shortName,
 							Image: pullRegAddr + immutil.PeerImg,
-							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "vol1", MountPath: peerDataDir, SubPath: podName+hostDataDir, },
-								{ Name: "secret-vol1", MountPath: certsTarDir, },
-							},
+							VolumeMounts: storageVolMount,
 							EnvFrom: peerEnv,
 							WorkingDir: peerWorkingDir,
 							Command: []string{"sh", "-c", peerEpCmd+"&& env && peer node start"},
@@ -1028,7 +1020,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								{ Name: "IMMS_POD_NAME", Value: podName, },
 							},
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "config-vol", MountPath: "/var/lib/immconfig", },
+								{ Name: "plugin-config-vol", MountPath: "/var/lib/immconfig", },
 							},
 							Command: []string{"sh", "-c", "mkdir -p "+StorageGrpPermDir+" && /var/lib/immpluginsrv"},
 							StartupProbe: &corev1.Probe{
@@ -1050,7 +1042,9 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 								{ Name: "BACKEND_HOST", Value: "localhost:"+storagePortStr },
 							},
 							VolumeMounts: []corev1.VolumeMount{
-								{ Name: "secret-proxytls", MountPath: "/etc/tlskey", },
+								{ Name: "secret-keys", MountPath: "/etc/keys/tls", },
+								{ Name: "configmap-vol1", MountPath: "/etc/keys/certs/tlsca.crt", SubPath: "tlscacert" },
+								{ Name: "configmap-vol1", MountPath: "/etc/keys/certs/sign.crt", SubPath: "signcert", },
 							},
 							Command: []string{"/var/lib/grpcProxy"},
 							Ports: []corev1.ContainerPort{
@@ -1073,6 +1067,17 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		retErr = fmt.Errorf("Could not create a container in a pod: %s\n", err)
 		return 
 	}
+
+	var rollbackFunc []func()
+	defer func() {
+		if retErr == nil {
+			return
+		}
+
+		for i := len(rollbackFunc)-1; i >= 0; i-- {
+			rollbackFunc[i]()
+		}
+	}()
 	rollbackFunc = append(rollbackFunc, func(){
 		immutil.K8sDeleteDeploy(deployment.Name)
 	})
@@ -1182,8 +1187,11 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 		immutil.K8sDeleteService(svcStorageExport.Name)
 	})
 	
-	
-	retErr = immutil.K8sCreateIngress(svcStorageExport.Name, podName, org, grpcProxyPort, "GRPCS") // create an ingress
+	retErr = immutil.K8sCreateIngressWithTLS(svcStorageExport.Name, podName, org, grpcProxyPort, "GRPC",
+		[]netv1.IngressTLS{{
+			Hosts: []string{podName},
+			SecretName: podName,
+		}})
 	if retErr != nil {
 		return
 	}
@@ -1192,7 +1200,7 @@ func startPeer(podName string) (state, resourceVersion string, retErr error) {
 	return // success
 }
 
-func createKeyPair() (priv, pub []byte, skiStr string, retErr error) {
+func createKeyPair(pubSubj *pkix.Name, caPrivPem, caCertPem []byte, dnsNames []string) (privPem, certPem []byte, skiStr string, retErr error) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		retErr = fmt.Errorf("Failed to generate a private key: %s", err)
@@ -1204,66 +1212,10 @@ func createKeyPair() (priv, pub []byte, skiStr string, retErr error) {
 		retErr = fmt.Errorf("Failed to marshal an ecdsa private key into ASN.1 DEF format: %s", err)
 		return
 	}
-	priv = pem.EncodeToMemory( &pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1} )
+	privPem = pem.EncodeToMemory( &pem.Block{Type: "PRIVATE KEY", Bytes: privAsn1} )
 
 	ski := sha256.Sum256( elliptic.Marshal(privKey.Curve, privKey.X,  privKey.Y) )
 	skiStr = hex.EncodeToString(ski[:])
-
-	pubDer, err := x509.MarshalPKIXPublicKey(privKey.Public())
-	if err != nil {
-		retErr = fmt.Errorf("Failed to marshal a public key into ASN.1 DEF format: %s", err)
-		return
-	}
-
-	pub = pem.EncodeToMemory( &pem.Block{Type: "PUBLIC KEY", Bytes: pubDer})
-	return
-}
-
-func signPublicKey(pub []byte, pubSubj *pkix.Name, caKey, caCertPem []byte, dnsNames []string) ([]byte, error) {
-	// decode public key
-	pubKeyData, _ := pem.Decode(pub)
-	if pubKeyData.Type != "PUBLIC KEY" {
-		return nil, fmt.Errorf("invalid pubilc key")
-	}
-	srcPubKeyRaw, err := x509.ParsePKIXPublicKey(pubKeyData.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("could not parse a public key: %s", err)
-	}
-	srcPubKey, ok := srcPubKeyRaw.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("unexpected public key")
-	}
-
-	// decode CA private key
-	privData, _ := pem.Decode(caKey)
-	if privData.Type != "PRIVATE KEY" {
-		return nil, fmt.Errorf("unexpected private key (type=%s)", privData.Type)
-	}
-	if x509.IsEncryptedPEMBlock(privData) {
-		return nil, fmt.Errorf("not support encrypted PEM")
-	}
-	privKeyBase, err := x509.ParsePKCS8PrivateKey(privData.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported key format: %s", err)
-	}
-	caPrivKey, ok := privKeyBase.(*ecdsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("unexpected key")
-	}
-
-	// decode CA certificatate
-	caCertData, _ := pem.Decode(caCertPem)
-	if caCertData.Type != "CERTIFICATE" {
-		return nil, fmt.Errorf("unexpected CA private key")
-	}
-	caCert, err := x509.ParseCertificate(caCertData.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("unexpected certificate: %s", err)
-	}
-	_, ok = caCert.PublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("unexpected public key")
-	}
 
 	// set certificate parameters
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
@@ -1286,35 +1238,14 @@ func signPublicKey(pub []byte, pubSubj *pkix.Name, caKey, caCertPem []byte, dnsN
 		certTempl.DNSNames = append(certTempl.DNSNames, dnsNames...)
 	}
 
-	cert, err := x509.CreateCertificate(rand.Reader, certTempl, caCert, srcPubKey, caPrivKey)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create a certificate: %s", err)
+	certPem, retErr = immutil.CreateCertWithParameters(&privKey.PublicKey, pubSubj, caPrivPem, caCertPem, certTempl)
+	if retErr != nil {
+		return
 	}
-	pubPem := pem.EncodeToMemory( &pem.Block{Type: "CERTIFICATE", Bytes: cert})
-
-	return pubPem, nil
+	return // success
 }
 
-func readPrivKey(privPem []byte) (privSki [sha256.Size]byte, retErr error) {
-	privData, _ := pem.Decode(privPem)
-	if privData.Type != "PRIVATE KEY" {
-		retErr = fmt.Errorf("unexpected private key (type=%s)", privData.Type)
-		return
-	}
-	if x509.IsEncryptedPEMBlock(privData) {
-		retErr = fmt.Errorf("not support encrypted PEM")
-		return
-	}
-	privKeyBase, err := x509.ParsePKCS8PrivateKey(privData.Bytes)
-	if err != nil {
-		retErr = fmt.Errorf("unsupported key format: %s", err)
-		return
-	}
-	privKey, ok := privKeyBase.(*ecdsa.PrivateKey)
-	if !ok {
-		retErr = fmt.Errorf("unsupported type of key")
-		return
-	}
+func getPrivSki(privKey *ecdsa.PrivateKey) (privSki [sha256.Size]byte) {
 	privSki = sha256.Sum256( elliptic.Marshal(privKey.Curve, privKey.X, privKey.Y) )
 	return
 }
@@ -1333,24 +1264,39 @@ func readCertificateFile(certPath string) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func (s *server) ExportService(ctx context.Context, req *immop.ExportServiceRequest) (reply *immop.ExportServiceReply, err error) {
+func (s *server) ExportService(ctx context.Context, req *immop.ExportServiceRequest) (reply *immop.ExportServiceReply, retErr error) {
 	reply = &immop.ExportServiceReply{}
 	
-	uCert, err := s.checkCredential("ExportService", req)
-	if err != nil {
+	uCert, retErr := s.checkCredential("ExportService", req)
+	if retErr != nil {
 		return
 	}
 	
 	if ! hasStorageAdmin(uCert) {
-		err = fmt.Errorf("permission denied")
+		retErr = fmt.Errorf("permission denied")
 		return
 	}
 
 	secretName := req.Hostname
-	reply.CACert, reply.AdminCert, reply.TlsCACert, err = immutil.K8sGetCertsFromSecret(secretName)
-	reply.Hostname = secretName
-	reply.Port = storagePortStr // not support for swarm
+	caCert, retErr := immutil.K8sReadFileInConfig(secretName, "cacert")
+	if retErr != nil {
+		return
+	}
+	adminCert, retErr := immutil.K8sReadFileInConfig(secretName, "admincert")
+	if retErr != nil {
+		return
+	}
+	tlsCACert, retErr := immutil.K8sReadFileInConfig(secretName, "tlscacert")
+	if retErr != nil {
+		return
+	}
 
+	// success
+	reply.CACert = []byte(caCert)
+	reply.AdminCert = []byte(adminCert)
+	reply.TlsCACert = []byte(tlsCACert)
+	reply.Hostname = secretName
+	reply.Port = storagePortStr
 	return
 }
 
@@ -1401,20 +1347,18 @@ func (s *server) CreateChannel(ctx context.Context, req *immop.CreateChannelRequ
 		return
 	}
 	
-	genesisFile := strings.Split(ordererGenesisFile, "/")
-	retErr = immutil.K8sStoreFilesOnConfig(ordererName, &map[string]string{"block": "genesis"}, nil,
-		&map[string][]byte{genesisFile[len(genesisFile)-1]: genesisBlock})
+	retErr = immutil.K8sAppendFilesOnConfig(ordererName, &map[string]string{"config": "storage-grp"}, nil,
+		&map[string][]byte{ordererGenesisFile: genesisBlock})
 	if retErr != nil {
 		return
 	}
 
-	err = startOrderer(serviceName)
-	if err != nil {
-		retErr = err
+	retErr = startOrderer(serviceName)
+	if retErr != nil {
 		return
 	}
 
-	return
+	return // success
 }
 
 func (s *server) ImportService(ctx context.Context, req *immop.ImportServiceRequest) (reply *immop.Reply, retErr error) {
@@ -1914,9 +1858,7 @@ func (s *server) GetConfigBlock(ctx context.Context, req *immop.GetConfigBlockRe
 		return
 	}
 
-	genesisFile := strings.Split(ordererGenesisFile, "/")
-	genesisName := genesisFile[len(genesisFile)-1]	
-	genesisData, err:= immutil.K8sReadBinaryFileInConfig(grpHost, genesisName)
+	genesisData, err:= immutil.K8sReadBinaryFileInConfig(grpHost, ordererGenesisFile)
 	if err != nil {
 		retErr = fmt.Errorf("could not get a genesis.block: " + err.Error())
 		return
@@ -1940,11 +1882,11 @@ func (s *server) GetConfigBlock(ctx context.Context, req *immop.GetConfigBlockRe
 }
 
 func connectPeerWithName(peerName string) (*grpc.ClientConn, error) {
-	_, _, tlsCACert, err := immutil.K8sGetCertsFromSecret(peerName)
+	tlsCACert, err := immutil.K8sReadFileInConfig(peerName, "tlscacert")
 	if err != nil {
 		return nil, err
 	}
-	return connectPeer(peerName+":"+storagePortStr, tlsCACert)
+	return connectPeer(peerName+":"+storagePortStr, []byte(tlsCACert))
 }
 
 func connectPeer(peerAddr string, tlsCACert []byte) (*grpc.ClientConn, error) {
@@ -3104,8 +3046,7 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 	}
 	peerName := ""
 	chName := ""
-	var tlsCACert []byte
-
+	var tlsCACert string
 	
 	if req.Option == "installed" {
 		spec.ChaincodeSpec.Input = &pp.ChaincodeInput{Args: [][]byte{[]byte("getinstalledchaincodes")}}
@@ -3115,10 +3056,11 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 			retErr = fmt.Errorf("storage host was not determined")
 			return
 		}
-		_, _, tlsCACert, retErr = immutil.K8sGetCertsFromSecret(peerName)
+		tlsCACert, retErr = immutil.K8sReadFileInConfig(peerName, "tlscacert")
 		if retErr != nil {
 			return
 		}
+
 		peerName += ":"+storagePortStr
 	} else if strings.HasPrefix(req.Option, "enabled:"){
 		spec.ChaincodeSpec.Input = &pp.ChaincodeInput{Args: [][]byte{[]byte("getchaincodes")}}
@@ -3137,12 +3079,11 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 		}
 		peerName = peers[0]
 
-		tlsCACertStr, ok := chConf.TlsCACerts[org]
+		tlsCACert, ok = chConf.TlsCACerts[org]
 		if !ok {
 			retErr = fmt.Errorf("CA certificate is not found")
 			return
 		}
-		tlsCACert = []byte(tlsCACertStr)
 	} else {
 		retErr = fmt.Errorf("invalid option")
 		return
@@ -3166,7 +3107,7 @@ func (s *server) ListChainCode(ctx context.Context, req *immop.ListChainCodeReq)
 			return
 		}
 
-		conn, err := connectPeer(peerName, tlsCACert)
+		conn, err := connectPeer(peerName, []byte(tlsCACert))
 		if err != nil {
 			signer.err <- err
 			return
