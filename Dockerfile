@@ -8,7 +8,7 @@ COPY $SRCDIR/ ./
 
 # download proto files and generate codes
 RUN apk add protoc protobuf protobuf-dev
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.0
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28
 RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.2
 RUN ./script/fabric_proto.sh
 

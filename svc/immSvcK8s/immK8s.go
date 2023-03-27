@@ -26,6 +26,8 @@ import (
 	"os"
 	"bytes"
 	"fmt"
+	"log"
+	"context"
 	
 	"immutil"
 )
@@ -268,6 +270,50 @@ func createPod(immsrvSubj, envoySubj *pkix.Name) error {
 	if err != nil {
 		return err
 	}
+
+	var rollbackFunc []func()
+	defer func() {
+		if err == nil {
+			return
+		}
+		for i := len(rollbackFunc)-1; i >= 0; i-- {
+			rollbackFunc[i]()
+		}
+	}()
+	rollbackFunc = append(rollbackFunc, func(){
+		immutil.K8sDeleteService(service.Name)
+		immutil.K8sDeleteDeploy(deployment.Name)
+	})
+
+	svcClient, err := immutil.K8sGetServiceClient()
+	if err != nil {
+		return err
+	}
+	
+	immsrvSvc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: immutil.ImmsrvHostname,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string] string{
+				"app": "imm-server",
+			},
+			Ports: []corev1.ServicePort{
+				corev1.ServicePort{
+					Port: 50051,
+					TargetPort: intstr.IntOrString{
+						Type: intstr.Int,
+						IntVal: 50051,
+					},
+				},
+			},
+		},
+	}
+	resultSvc, err := svcClient.Create(context.TODO(), immsrvSvc, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+	log.Printf("created %q service\n", resultSvc.GetObjectMeta().GetName())	
 	
 	return nil
 }
@@ -280,6 +326,11 @@ func makeHttpdConf(envoySubj *pkix.Name) error {
 
 func stopImmServer(immsrvSubj, envoySubj *pkix.Name) error {
 	err := immutil.K8sDeleteService(immutil.EnvoyHostname)
+	if err != nil {
+		return err
+	}
+	
+	err = immutil.K8sDeleteService(immutil.ImmsrvHostname)
 	if err != nil {
 		return err
 	}
