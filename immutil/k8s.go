@@ -36,8 +36,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"archive/tar"
-	"bytes"
 	"io"
 	"log"
 	"strings"
@@ -251,93 +249,6 @@ func K8sGetSecretsClient() (clientv1.SecretInterface, error) {
 	return clientset.CoreV1().Secrets(corev1.NamespaceDefault), nil
 }
 
-
-func K8sGetCertsFromSecret(secretName string) (CACert, AdminCert, TlsCACert []byte, retErr error) {
-	var certs = map[string] *[]byte{
-		"msp/cacerts/": &CACert,
-		"msp/admincerts/": &AdminCert,
-		"msp/tlscacerts/": &TlsCACert,
-	}
-	retErr = k8sGetKeysFromSecret(secretName, certs)
-	return
-}
-
-func K8sGetSignKeyFromSecret(secretName string)  (signKey, signCert []byte, retErr error) {
-	var keys = map[string] *[]byte{
-		"msp/keystore/": &signKey,
-		"msp/signcerts/": &signCert,
-	}
-	retErr = k8sGetKeysFromSecret(secretName, keys)
-	return
-}
-
-func k8sGetKeysFromSecret(secretName string, keyPEMs map[string] *[]byte) (retErr error) {
-	secretsClient, retErr := K8sGetSecretsClient()
-	if retErr != nil {
-		return
-	}
-	
-	secret, err := secretsClient.Get(context.TODO(), secretName, metav1.GetOptions{})
-	if err != nil || secret.Data == nil {
-		retErr = fmt.Errorf("not found key: %s", err)
-		return
-	}
-
-	tarData, ok := secret.Data["keys.tar"]
-	if !ok {
-		retErr = fmt.Errorf("not found key on a secret")
-		return
-	}
-	
-	tarR := tar.NewReader(bytes.NewReader(tarData))
-	readFileN := 0
-	keyN := len(keyPEMs)
-	for {
-		header, err := tarR.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			retErr = fmt.Errorf("failed to read a tar: " + err.Error())
-			return
-		}
-		if header.Typeflag != tar.TypeDir {
-			continue
-		}
-
-		key, ok := keyPEMs[header.Name]
-		if !ok {
-			continue
-		}
-		dirname := header.Name
-
-		header, err = tarR.Next()
-		if err == io.EOF || header.Typeflag != tar.TypeReg {
-			retErr = fmt.Errorf("could not get a key: " + dirname)
-			return
-		}
-		if ! strings.HasPrefix(header.Name, dirname) {
-			retErr = fmt.Errorf("Unexpected data in a secret")
-			return
-		}
-
-		*key = make([]byte, header.Size)
-		len, err := tarR.Read(*key)
-		if (int64(len) != header.Size) || (err != io.EOF) {
-			retErr = fmt.Errorf("failed to read a file")
-			return
-		}
-
-		readFileN++
-		if readFileN == keyN {
-			return // success
-		}
-	}
-
-	retErr = fmt.Errorf("Unexpected secret")
-	return
-}
-
 func k8sCheckKeyPair(secretName string) (validKey bool, retErr error) {
 	privPem, pubPem, err := K8sGetKeyPair(secretName)	
 	if err == nil {
@@ -469,6 +380,45 @@ func K8sGetKeyPair(secretName string) (privPem, certPem []byte, retErr error) {
 	return
 }
 
+func K8sSetTLSKeyPairOnSecret(secretName string, privPem, certPem []byte, ingressTLS bool) (retErr error) {
+	secretType := corev1.SecretTypeOpaque
+	privKey := "key"
+	certKey := "cert"
+	if ingressTLS {
+		secretType = corev1.SecretTypeTLS
+		privKey = "tls.key"
+		certKey = "tls.crt"
+	}
+
+	sClient, err := K8sGetSecretsClient()
+	if err != nil {
+		retErr = err
+		return
+	}
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: secretName,
+			Labels: map[string]string{
+				"tls": "keypair",
+			},
+		},
+		Type: secretType,
+		Data: map[string][]byte{
+			privKey: privPem,
+			certKey: certPem,
+		},
+	}
+
+	_, err = sClient.Create(context.TODO(), secret, metav1.CreateOptions{})
+	if err != nil {
+		retErr = fmt.Errorf("failed to create a " + secretName + " secret: " + err.Error())
+		return
+	}
+
+	return // success
+}
+
 func K8sCreateTLSKeyPairOnSecret(hostname, org string, ingressTLS bool) (secretName string, retErr error) {
 	orgConf, err := k8sReadOrgConfig(org)
 	if err != nil {
@@ -491,46 +441,41 @@ func K8sCreateTLSKeyPairOnSecret(hostname, org string, ingressTLS bool) (secretN
 		return
 	}
 
-	secretType := corev1.SecretTypeOpaque
-	privKey := "key"
-	certKey := "cert"
-	if ingressTLS {
-		secretType = corev1.SecretTypeTLS
-		privKey = "tls.key"
-		certKey = "tls.crt"
-		
-		privTrimType := strings.Replace(string(privPem), "-----BEGIN PRIVATE KEY-----\n", "", 1)
-		privTrimType = strings.Replace(privTrimType, "-----END PRIVATE KEY-----\n", "", 1)
-		privPem = []byte(privTrimType)
-		
-		pubTrimType := strings.Replace(string(pubPem), "-----BEGIN CERTIFICATE-----\n", "", 1)
-		pubTrimType = strings.Replace(pubTrimType, "-----END CERTIFICATE-----\n", "", 1)
-		pubPem = []byte(pubTrimType)
+	retErr = K8sSetTLSKeyPairOnSecret(secretName, privPem, pubPem, ingressTLS)
+	if retErr != nil {
+		return
 	}
+		
+	return // success
+}
 
-	sClient, err := K8sGetSecretsClient()
-	if err != nil {
-		retErr = err
+func K8sAppendFilesOnSecret(name string, files *map[string][]byte) (retErr error) {
+	cli, retErr:= K8sGetSecretsClient()
+	if retErr != nil {
 		return
 	}
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: secretName,
-			Labels: map[string]string{
-				"tls": "keypair",
-			},
-		},
-		Type: secretType,
-		Data: map[string][]byte{
-			privKey: privPem,
-			certKey: pubPem,
-		},
+	secret, err := cli.Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf(ERR_NOT_FOUND_SECRET + " %s", err)
+		return
 	}
 
-	_, err = sClient.Create(context.TODO(), secret, metav1.CreateOptions{})
+	if secret.Data == nil {
+		retErr = fmt.Errorf("unexpected secret data")
+		return
+	}
+
+	if files == nil {
+		return
+	}
+	for key, val := range *files {
+		secret.Data[key] = val
+	}
+
+	_, err = cli.Update(context.TODO(), secret, metav1.UpdateOptions{})
 	if err != nil {
-		retErr = fmt.Errorf("failed to create a secret for " + hostname + ": " + err.Error())
+		retErr = fmt.Errorf("failed to update a secret for " + name + ": " + err.Error())
 		return
 	}
 
@@ -1170,6 +1115,32 @@ func K8sReadBinaryFileInConfig(configName, filename string) (data []byte, retErr
 	return // success
 }
 
+func K8sReadFileInSecret(name, filename string) (data []byte, retErr error) {
+	cli, retErr := K8sGetSecretsClient()
+	if retErr != nil {
+		return
+	}
+
+	secret, err := cli.Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		retErr = fmt.Errorf(ERR_NOT_FOUND_SECRET + " %s", err)
+		return
+	}
+	
+	if secret.Data == nil {
+		retErr = fmt.Errorf("unexpected secret data")
+		return
+	}
+
+	data, ok := secret.Data[filename]
+	if !ok {
+		retErr = fmt.Errorf("not found %s", filename)
+		return
+	}
+
+	return // success
+}
+
 
 func K8sDeleteConfigMap(cfgName string) (error) {
 	configMapCli, err := K8sGetConfigMapsClient()
@@ -1288,6 +1259,10 @@ func K8sDeployPodAndService(deployment *apiapp.Deployment, service *corev1.Servi
 }
 
 func K8sCreateIngress(svcName, hostname, org string, portNumber int32, backendProto string) (retErr error) {
+	return K8sCreateIngressWithTLS(svcName, hostname, org, portNumber, backendProto, nil)
+}
+
+func K8sCreateIngressWithTLS(svcName, hostname, org string, portNumber int32, backendProto string, ingressTLS []netv1.IngressTLS) (retErr error) {
 	genIngressConf, err := K8sReadConfig(org, EnvGenIngressConf)
 	if err != nil {
 		retErr = err
@@ -1324,6 +1299,15 @@ func K8sCreateIngress(svcName, hostname, org string, portNumber int32, backendPr
 									Port: netv1.ServiceBackendPort{
 										Number: portNumber,
 									},},},},},},},},},},}
+
+	switch backendProto {
+	case "HTTPS":
+		ingress.Annotations["nginx.ingress.kubernetes.io/force-ssl-redirect"] = "true"
+	}
+
+	if ingressTLS != nil {
+		ingress.Spec.TLS = ingressTLS
+	}
         
 	_, err = ingressCli.Create(context.TODO(), ingress, metav1.CreateOptions{})
 	if err != nil {

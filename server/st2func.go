@@ -482,44 +482,28 @@ password = ` + passwd + `
 		retErr = err
 		return
 	}
-	
-	pathtype := netv1.PathTypePrefix
-	ingress := &netv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "st2web",
-		},
-		Spec: netv1.IngressSpec{
-			TLS: []netv1.IngressTLS{{
-				Hosts: []string{tlsSecretName},
-				SecretName: tlsSecretName,
-			},},
-			Rules: []netv1.IngressRule{{
-				Host: tlsSecretName,
-				IngressRuleValue: netv1.IngressRuleValue{
-					HTTP: &netv1.HTTPIngressRuleValue{
-						Paths: []netv1.HTTPIngressPath{{
-							Path: "/",
-							PathType: &pathtype,
-							Backend: netv1.IngressBackend{
-								Service: &netv1.IngressServiceBackend{
-									Name: immutil.ST2WebHostname,
-									Port: netv1.ServiceBackendPort{
-										Number: 8080,
-									},},},},},},},},},},}
-        
-	_, err = ingressCli.Create(context.TODO(), ingress, metav1.CreateOptions{})
+
+	err = immutil.K8sCreateIngressWithTLS(immutil.ST2WebHostname, tlsSecretName, s.org, 8080, "HTTP", 
+		[]netv1.IngressTLS{{
+			Hosts: []string{tlsSecretName},
+			SecretName: tlsSecretName,
+		}})
 	if err != nil {
 		retErr = errors.New("failed to create an ingress: " + err.Error())
 		return
 	}
 	rollbackFunc = append(rollbackFunc, func(){
-		immutil.K8sDeleteIngress(ingress.Name)
+		immutil.K8sDeleteIngress(immutil.ST2WebHostname)
 	})
 
+	pathtype := netv1.PathTypePrefix
 	st2immst := &netv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "st2webimmst",
-			Annotations: map[string]string{ "nginx.ingress.kubernetes.io/backend-protocol": "HTTPS", },
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/backend-protocol": "HTTPS",
+				"nginx.ingress.kubernetes.io/force-ssl-redirect":`"true"`,
+			},
 		},
 		Spec: netv1.IngressSpec{
 			Rules: []netv1.IngressRule{{

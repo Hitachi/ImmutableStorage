@@ -16,7 +16,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	google.golang.org/genproto v0.0.0-20230303212802-e74f57abe488 // indirect
 	google.golang.org/grpc v1.53.0 // indirect
-	google.golang.org/protobuf v1.29.0 // indirect
+	google.golang.org/protobuf v1.29.1 // indirect
 	immclient v0.0.0-00010101000000-000000000000 // indirect
 	immcommon v0.0.0-00010101000000-000000000000 // indirect
 	immop v0.0.0-00010101000000-000000000000 // indirect

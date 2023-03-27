@@ -263,16 +263,27 @@ func newOrdererGroup(ordererName string) (ordererGr *common.ConfigGroup , err er
 	addValue(ordererGr, channelconfig.ConsensusTypeValue("solo", nil), channelconfig.AdminsPolicyKey)
 
 	
-	caCert, adminCert, tlsCACert, err := immutil.K8sGetCertsFromSecret(strings.SplitN(ordererName, ":", 2)[0])
+	storageGrpConfigName := strings.SplitN(ordererName, ":", 2)[0]
+	caCert, err := immutil.K8sReadFileInConfig(storageGrpConfigName, "cacert")
+	if err != nil {
+		return
+	}	
+	adminCert, err := immutil.K8sReadFileInConfig(storageGrpConfigName, "admincert")
+	if err != nil {
+		return
+	}	
+	tlsCACert, err := immutil.K8sReadFileInConfig(storageGrpConfigName, "tlscacert")
 	if err != nil {
 		return
 	}
-	caCertS, _, err := immutil.ReadCertificate(caCert)
+
+	caCertS, _, err := immutil.ReadCertificate([]byte(caCert))
 	if err != nil {
 		return
 	}
+	
 	org := caCertS.Subject.Organization[0]
-	ordererGr.Groups["orderer."+org], err = newOrgGroup(OrdererMspIDPrefix+org, caCert, adminCert, tlsCACert, false)
+	ordererGr.Groups["orderer."+org], err = newOrgGroup(OrdererMspIDPrefix+org, []byte(caCert), []byte(adminCert), []byte(tlsCACert), false)
 	return
 }
 

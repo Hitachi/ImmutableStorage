@@ -42,7 +42,7 @@ const (
 	CouchDBImg = "library/couchdb:2.3.1"
 	ImmHttpdImg = "library/httpd:2.4.54"
 	ImmSrvBaseImg = "library/ubuntu:22.04"
-	ImmSrvImg = "immsrv:1.6.0"	
+	ImmSrvImg = "immsrv:1.6.1"	
 	EnvoyImg = "envoyproxy/envoy:v1.22.0"
 
 	ContRuntimeBaseImg = "library/alpine:3.17"
@@ -50,7 +50,7 @@ const (
 	ImmPluginSrvImg = "immpluginsrv:1.1"
 	RsyslogBaseImg = "library/alpine:3.17"
 	RsyslogImg = "rsyslog:immst1"
-	ImmGRPCProxyImg = "immgrpcproxy:1"
+	ImmGRPCProxyImg = "immgrpcproxy:1.1"
 	ImmGRPCProxyBaseImg = "library/alpine:3.17"
 
 	ST2AuthBaseImg = "stackstorm/st2auth:3.8.0"
