@@ -102,7 +102,7 @@ protoc -I ./srcprotos/ --go_out=./protos $opts $srcs
 
 mkdir -p srcprotos/shim
 cp srcprotos/peer/chaincode_shim.proto srcprotos/shim
-sed -ie 's@protos/peer@protos/shim@' srcprotos/shim/chaincode_shim.proto
+sed -i 's@protos/peer@protos/shim@' srcprotos/shim/chaincode_shim.proto
 srcs='srcprotos/shim/chaincode_shim.proto'
 opt_args='paths=source_relative Mpeer/chaincode_event.proto=fabric/protos/peer Mpeer/proposal.proto=fabric/protos/peer'
 opts=''
@@ -111,3 +111,21 @@ for i in $opt_args; do
 done
 protoc -I ./srcprotos/ --go_out=./protos --go-grpc_out=./protos $opts $srcs
 (cd protos/shim; go mod init shim)
+
+cp srcprotos/common/collection.proto srcprotos/gossip
+sed -i 's@protos/common@protos/gossip@;s@package common@package gossip@' srcprotos/gossip/collection.proto
+sed -i 's@SignaturePolicyEnvelope@common.SignaturePolicyEnvelope@' srcprotos/gossip/collection.proto
+sed -i 's@common/collection.proto@gossip/collection.proto@' srcprotos/gossip/message.proto
+sed -i 's@common.CollectionConfigPackage@CollectionConfigPackage@' srcprotos/gossip/message.proto
+opt_args='paths=source_relative Mcommon/policies.proto=fabric/protos/common'
+opts=''
+for i in $opt_args; do
+    opts="$opts --go_opt $i"
+done
+srcs1='gossip/message.proto gossip/collection.proto'
+srcs=''
+for i in $srcs1; do
+    srcs="$srcs srcprotos/$i"
+done
+protoc -I ./srcprotos/ --go_out=./protos $opts $srcs
+(cd protos/gossip; go mod init gossip)

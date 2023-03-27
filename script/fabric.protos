@@ -2,6 +2,7 @@ common/common.proto
 common/configtx.proto
 common/configuration.proto
 common/policies.proto
+common/collection.proto
 ledger/queryresult/kv_query_result.proto
 ledger/rwset/kvrwset/kv_rwset.proto
 ledger/rwset/rwset.proto
@@ -22,3 +23,4 @@ peer/transaction.proto
 token/expectations.proto
 token/transaction.proto
 peer/chaincode_shim.proto
+gossip/message.proto
